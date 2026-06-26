@@ -1,32 +1,45 @@
-# 비공개 환경설정 (API 키)
+# 비공개 설정 (API 키 등)
 .env
+.env.*
+!.env.example
 .streamlit/secrets.toml
 
 # 파이썬
 __pycache__/
 *.py[cod]
+*$py.class
 *.egg-info/
+build/
+dist/
+.eggs/
+
+# 가상환경 / 도구 캐시
 .venv/
 venv/
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+.cache/
+.python-version
 
-# 에디터/도구 로컬 설정
+# 에디터 / 도구 로컬 설정
 .claude/
 .idea/
 .vscode/
 
-# 로컬 전용 / 대용량 산출물 (재생성 가능)
-# 로컬 Chroma sqlite (대용량)
+# 인덱스 산출물 — 로컬 전용(재생성 가능)은 제외
+# 로컬 Chroma DB (대용량)
 storage/chroma/
 # 로그
 storage/*.log
-# bge-m3 로컬 개발 산출물
+# 구 bge 산출물(미사용)
 storage/bm25.pkl
 storage/reports.npz
-# 클라우드(memory/A안) 배포 산출물은 커밋한다:
+# 임시 산출물
+storage/embed_input.jsonl
+storage/embeddings_bge.npz
+# 커밋 대상(배포 memory 백엔드용):
 #   storage/chunks.jsonl, storage/reports_openai.npz, storage/bm25_openai.pkl
-
-# 모델·HF 캐시
-.cache/
 
 # OS
 .DS_Store

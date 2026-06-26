@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import numpy as np
 
-import config
-import vector_store
-from common import get_chroma_collection
+from rag import config
+from rag import vector_store
+from rag.services import get_chroma_collection
 
 
 def main():

@@ -12,10 +12,10 @@ import json
 
 from rank_bm25 import BM25Okapi
 
-import config
-import structure_chunker as sc
-from common import embed_texts, get_chroma_collection, save_bm25, simple_tokenize
-from index_pipeline import META_FIELDS
+from rag import config
+from rag.indexing import structure_chunker as sc
+from rag.services import embed_texts, get_chroma_collection, save_bm25, simple_tokenize
+from rag.indexing.index_pipeline import META_FIELDS
 
 
 def main():
@@ -48,7 +48,7 @@ def main():
     tok = [simple_tokenize(t) for t in embed_input]
     save_bm25(BM25Okapi(tok), tok, ids)
 
-    import vector_store
+    from rag import vector_store
     vector_store.save_npz(ids, vectors)
     print(f"5. npz 저장: {config.npz_path().name}")
 

@@ -16,10 +16,9 @@ from pathlib import Path
 # .env 는 .gitignore 에 등록되어 GitHub 에 올라가지 않는다.
 from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).resolve().parent / ".env")
-
-# ── 경로 ────────────────────────────────────────────────
-ROOT = Path(__file__).resolve().parent
+# 프로젝트 루트 = 패키지(rag/)의 상위 폴더. 산출물/.env 는 루트 기준.
+ROOT = Path(__file__).resolve().parent.parent
+load_dotenv(ROOT / ".env")
 
 # 실제 원본 데이터 위치 (사용자가 별도 업로드하지 않고 여기서 자동 로드)
 # 환경변수 RAG_DATA_DIR 로 덮어쓸 수 있다.

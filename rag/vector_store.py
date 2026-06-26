@@ -17,8 +17,8 @@ from functools import lru_cache
 
 import numpy as np
 
-import config
-from metering import get_logger
+from rag import config
+from rag.monitoring import get_logger
 
 log = get_logger()
 
@@ -70,7 +70,7 @@ def _search_memory(qv, top_k, where):
 
 # ── chroma / remote 백엔드 ──────────────────────────────
 def _search_chroma(qv, top_k, where):
-    from common import get_chroma_collection
+    from rag.services import get_chroma_collection
 
     col = get_chroma_collection()
     w = None

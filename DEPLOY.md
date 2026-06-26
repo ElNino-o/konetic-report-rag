@@ -25,13 +25,13 @@
 ### 1) 로컬에서 인덱스 산출물 만들기 — **단일 명령**
 ```bash
 uv sync --extra indexing
-uv run python index_pipeline.py
+uv run python -m rag.indexing.index_pipeline
 ```
 이 한 번으로 **청킹 + OpenAI 임베딩 + 적재**가 끝나고 아래가 생성된다:
 `storage/chunks.jsonl`, `storage/reports_openai.npz`, `storage/bm25_openai.pkl` (+ 로컬 Chroma)
 → 앞 3개는 `.gitignore` 에서 제외되어 **커밋 대상**(합쳐 ~38MB).
-> 청킹은 그대로 두고 임베딩만 다시 만들려면: `uv run python build_openai_index.py`
-> 이미 Chroma 만 있고 npz 만 필요하면: `uv run python export_npz.py`
+> 청킹은 그대로 두고 임베딩만 다시 만들려면: `uv run python -m rag.indexing.build_openai_index`
+> 이미 Chroma 만 있고 npz 만 필요하면: `uv run python -m rag.indexing.export_npz`
 
 ### 2) 배포
 - GitHub 에 푸시 (위 3개 산출물 포함)
@@ -56,7 +56,7 @@ VECTOR_BACKEND=memory uv run streamlit run app.py
 ```bash
 chroma run --host 0.0.0.0 --port 8000 --path storage/chroma
 ```
-(인덱스는 `uv run python index_pipeline.py` 로 `reports_openai` 컬렉션에 적재돼 있어야 함)
+(인덱스는 `uv run python -m rag.indexing.index_pipeline` 로 `reports_openai` 컬렉션에 적재돼 있어야 함)
 
 ### 2) 터널로 외부 노출 (둘 중 하나)
 ```bash

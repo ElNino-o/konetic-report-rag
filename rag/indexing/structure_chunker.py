@@ -22,7 +22,7 @@ import re
 
 import pdfplumber
 
-from metering import get_logger
+from rag.monitoring import get_logger
 
 log = get_logger()
 

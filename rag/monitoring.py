@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import sys
 
-import config
+from rag import config
 
 _CONFIGURED = False
 

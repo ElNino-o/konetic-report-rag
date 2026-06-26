@@ -23,8 +23,8 @@ try:
 except Exception:
     pass
 
-import config
-from metering import get_logger
+from rag import config
+from rag.monitoring import get_logger
 
 st.set_page_config(page_title="코네틱 국가별보고서, 규제보고서 Q&A", layout="wide")
 get_logger().info("[app] 시작 · 설정요약: %s", config.summary())
@@ -107,7 +107,7 @@ def render_doc_browser(by_doc: dict, docs: dict):
 
 
 def load_qa():
-    import qa_pipeline
+    from rag import qa_pipeline
     return qa_pipeline
 
 
@@ -186,7 +186,7 @@ else:
     files = st.file_uploader("PDF 업로드 (여러 개 가능)", type=["pdf"],
                              accept_multiple_files=True)
     if st.button("📥 업로드 처리(파싱·임베딩)", disabled=not (files and eff_key)):
-        import upload_pipeline
+        from rag import upload_pipeline
         with st.spinner("파싱 → 청킹 → 임베딩 중..."):
             try:
                 idx = upload_pipeline.process_files(files, key_in.strip() or config.OPENAI_API_KEY)
@@ -208,7 +208,7 @@ else:
         if not up["chunks"]:
             st.info("먼저 PDF 를 업로드·처리하세요.")
         if urun and uq.strip():
-            import upload_pipeline
+            from rag import upload_pipeline
             qa = load_qa()
             get_logger().info("[app] 업로드 질의 q=%r rerank=%s", uq, rr)
             try:

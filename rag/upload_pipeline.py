@@ -13,7 +13,7 @@ import re
 
 import numpy as np
 
-import common
+from rag import services as common
 
 _CTRL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 

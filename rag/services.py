@@ -11,8 +11,8 @@ from __future__ import annotations
 import pickle
 from functools import lru_cache
 
-import config
-from metering import get_logger
+from rag import config
+from rag.monitoring import get_logger
 
 log = get_logger()
 

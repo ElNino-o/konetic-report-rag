@@ -20,9 +20,9 @@ import re
 import pandas as pd
 from rank_bm25 import BM25Okapi
 
-import config
-import structure_chunker as sc
-from common import embed_texts, get_chroma_collection, save_bm25, simple_tokenize
+from rag import config
+from rag.indexing import structure_chunker as sc
+from rag.services import embed_texts, get_chroma_collection, save_bm25, simple_tokenize
 
 
 # ════════════════════════════════════════════════════════
@@ -140,7 +140,7 @@ def build_index(all_chunks: list[dict]):
     save_bm25(BM25Okapi(tokenized), tokenized, ids)
 
     # ── 5.-c 인메모리(numpy) 백엔드용 npz 저장 (배포 A안) ──
-    import vector_store
+    from rag import vector_store
     vector_store.save_npz(ids, vectors)
     print(f"5. npz 저장: {config.npz_path().name}")
 

@@ -17,11 +17,11 @@ from __future__ import annotations
 
 import time
 
-import config
-import common
-import metering
-import vector_store
-from common import (
+from rag import config
+from rag import services as common
+from rag import monitoring as metering
+from rag import vector_store
+from rag.services import (
     embed_texts,
     load_bm25,
     simple_tokenize,
