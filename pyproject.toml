@@ -12,13 +12,14 @@ dependencies = [
     "python-dotenv>=1.0",
     "numpy>=1.26",
     "rank-bm25>=0.2.2",
+    "PyMuPDF>=1.24",          # 업로드 PDF 런타임 파싱
 ]
 
 [project.optional-dependencies]
-# ── 오프라인 인덱싱(로컬 전용) — PDF 파싱·청킹·Chroma 적재 ──
+# ── 인덱싱 시에만 필요(배포 런타임 불필요) — 구조 청킹·Chroma 적재 ──
+# (임베딩 자체는 OpenAI API. 여기 deps 는 PDF 파싱/로컬 Chroma 용)
 indexing = [
     "pdfplumber>=0.11",
-    "PyMuPDF>=1.24",
     "pandas>=2.0",
     "openpyxl>=3.1",
     "chromadb>=0.5",

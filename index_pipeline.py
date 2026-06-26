@@ -1,13 +1,13 @@
 """
-① 데이터 인덱싱 파이프라인 (오프라인) — 구조 인식 청킹 버전
+1. 데이터 인덱싱 파이프라인 (오프라인) — 구조 인식 청킹 버전
 
 실행:  python index_pipeline.py
 
 흐름:
-  ① 메타데이터(엑셀) 읽기 + PDF 매핑            (load_metadata)
-  ②③ 구조 인식 파싱·청킹                         (structure_chunker)
-  ④ 임베딩 생성 (OpenAI, 컨텍스트 헤더 결합)
-  ⑤ 벡터DB 적재 (Chroma + BM25, 드라이브 영속화)
+  1. 메타데이터(엑셀) 읽기 + PDF 매핑            (load_metadata)
+  2.3. 구조 인식 파싱·청킹                         (structure_chunker)
+  4. 임베딩 생성 (OpenAI, 컨텍스트 헤더 결합)
+  5. 벡터DB 적재 (Chroma + BM25, 드라이브 영속화)
 
 RAGFlow 대응: rag/flow/pipeline.py 의 File→Parser→Chunker→Tokenizer 를
               외부 인프라 없이 로컬로 재구성. 청킹은 보고서 구조를 인식한다.
@@ -26,7 +26,7 @@ from common import embed_texts, get_chroma_collection, save_bm25, simple_tokeniz
 
 
 # ════════════════════════════════════════════════════════
-# ① 메타데이터 읽기 · PDF 연결
+# 1. 메타데이터 읽기 · PDF 연결
 #    report_list.xlsx 의 두 시트(국가별/정책규제)를 읽어
 #    국가·분야·제목·내용·태그를 가져오고, 파일명을 키로
 #    country_report/policy_report 안의 PDF 와 매핑한다.
@@ -58,7 +58,7 @@ def load_metadata() -> dict[str, dict]:
         raise FileNotFoundError(f"메타데이터 엑셀이 없습니다: {config.METADATA_XLSX}")
 
     pdf_index = _build_pdf_index()
-    print(f"① PDF 파일 {len(pdf_index)}건 발견")
+    print(f"1. PDF 파일 {len(pdf_index)}건 발견")
 
     xl = pd.ExcelFile(config.METADATA_XLSX)
     meta_by_file: dict[str, dict] = {}
@@ -83,7 +83,7 @@ def load_metadata() -> dict[str, dict]:
             }
     if missing:
         print(f"  [경고] 엑셀에 있으나 PDF 미발견: {missing}건")
-    print(f"① 메타데이터 {len(meta_by_file)}건 ↔ PDF 매핑 완료")
+    print(f"1. 메타데이터 {len(meta_by_file)}건 ↔ PDF 매핑 완료")
     return meta_by_file
 
 
@@ -96,13 +96,13 @@ META_FIELDS = (
 
 
 # ════════════════════════════════════════════════════════
-# ④ 임베딩  +  ⑤ 벡터DB·BM25 적재 (영속화)
+# 4. 임베딩  +  5. 벡터DB·BM25 적재 (영속화)
 #    - reference(출처/참고문헌) 타입은 검색 노이즈라 인덱스에서 제외
 #      (단, chunks.jsonl 에는 전부 저장 → UI 우측 PDF 본문 표시용)
 #    - 임베딩/BM25 입력은 context_text(제목·구조 헤더 + 본문)
 # ════════════════════════════════════════════════════════
 def build_index(all_chunks: list[dict]):
-    # ⑤-c 청크 원문 전체 백업 (UI 표시용 — reference 포함)
+    # 5.-c 청크 원문 전체 백업 (UI 표시용 — reference 포함)
     config.STORAGE_DIR.mkdir(parents=True, exist_ok=True)
     with open(config.CHUNK_DUMP, "w", encoding="utf-8") as f:
         for c in all_chunks:
@@ -115,12 +115,12 @@ def build_index(all_chunks: list[dict]):
     embed_input = [sc.context_text(c) for c in retr]            # 컨텍스트 헤더 결합
     metadatas = [{k: str(c.get(k, "")) for k in META_FIELDS} for c in retr]
 
-    # ── ④ 임베딩 생성 (OpenAI) ──
-    print(f"④ 임베딩 생성: {len(embed_input)} 청크(reference 제외) → OpenAI {config.OPENAI_EMBED_MODEL}")
+    # ── 4. 임베딩 생성 (OpenAI) ──
+    print(f"4. 임베딩 생성: {len(embed_input)} 청크(reference 제외) → OpenAI {config.OPENAI_EMBED_MODEL}")
     vectors = embed_texts(embed_input)
 
-    # ── ⑤-a Chroma 적재 ──
-    print("⑤ Chroma 적재 중...")
+    # ── 5.-a Chroma 적재 ──
+    print("5. Chroma 적재 중...")
     col = get_chroma_collection()
     existing = col.get()["ids"]
     if existing:
@@ -134,30 +134,30 @@ def build_index(all_chunks: list[dict]):
             metadatas=metadatas[i:i + B],
         )
 
-    # ── ⑤-b BM25 적재 (컨텍스트 헤더 포함 토큰) ──
-    print("⑤ BM25 인덱스 생성 중...")
+    # ── 5.-b BM25 적재 (컨텍스트 헤더 포함 토큰) ──
+    print("5. BM25 인덱스 생성 중...")
     tokenized = [simple_tokenize(t) for t in embed_input]
     save_bm25(BM25Okapi(tokenized), tokenized, ids)
 
-    # ── ⑤-c 인메모리(numpy) 백엔드용 npz 저장 (배포 A안) ──
+    # ── 5.-c 인메모리(numpy) 백엔드용 npz 저장 (배포 A안) ──
     import vector_store
     vector_store.save_npz(ids, vectors)
-    print(f"⑤ npz 저장: {config.npz_path().name}")
+    print(f"5. npz 저장: {config.npz_path().name}")
 
     print(f"✅ 인덱싱 완료: 검색 {len(ids)}청크 / 전체 {len(all_chunks)}청크 → {config.STORAGE_DIR}")
 
 
 # ════════════════════════════════════════════════════════
-# 오케스트레이터: ① → ②③ → ④⑤
+# 오케스트레이터: 1. → 2.3. → 4.5.
 # ════════════════════════════════════════════════════════
 def main():
-    meta_by_file = load_metadata()                              # ①
+    meta_by_file = load_metadata()
     all_chunks: list[dict] = []
     for i, (fname, meta) in enumerate(meta_by_file.items(), 1):
         doc_id = _doc_id(fname, i)
-        print(f"②③ 구조 청킹 [{i}/{len(meta_by_file)}] {doc_id}: {fname}")
+        print(f"구조 청킹 [{i}/{len(meta_by_file)}] {doc_id}: {fname}")
         try:
-            chunks = sc.parse_and_chunk(meta["pdf_path"], meta, doc_id)  # ②③
+            chunks = sc.parse_and_chunk(meta["pdf_path"], meta, doc_id)
         except Exception as e:
             print(f"   [청킹 오류] {type(e).__name__}: {e}")
             chunks = []
@@ -178,7 +178,7 @@ def main():
     if not all_chunks:
         print("처리할 청크가 없습니다. data 구성을 확인하세요.")
         return
-    build_index(all_chunks)                                     # ④⑤
+    build_index(all_chunks)
 
 
 if __name__ == "__main__":

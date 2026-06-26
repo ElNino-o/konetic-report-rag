@@ -19,24 +19,32 @@ log = get_logger()
 # chromadb 는 무겁고 memory 백엔드(클라우드)에선 불필요 → 지연 import 한다.
 
 
-# ── ④ 임베딩 (OpenAI 단일) ──────────────────────────────
-@lru_cache(maxsize=1)
-def _openai_client():
+# ── 4. 임베딩 (OpenAI) — BYOK: 키를 세션별로 주입 ────────
+@lru_cache(maxsize=8)
+def _openai_client(api_key: str):
     from openai import OpenAI
 
-    # 타임아웃·재시도로 클라우드에서 무한 대기/일시적 오류에 대응
-    return OpenAI(base_url=config.OPENAI_BASE_URL, api_key=config.OPENAI_API_KEY,
+    # 타임아웃·재시도로 클라우드에서 무한 대기/일시적 오류에 대응. 키별 캐시.
+    return OpenAI(base_url=config.OPENAI_BASE_URL, api_key=api_key,
                   timeout=45.0, max_retries=2)
+
+
+def resolve_key(api_key: str | None = None) -> str:
+    """세션 키 우선, 없으면 env/secrets 키. 둘 다 없으면 오류."""
+    k = (api_key or "").strip() or config.OPENAI_API_KEY
+    if not k:
+        raise RuntimeError("OpenAI API 키가 없습니다. 사이드바에 키를 입력하세요.")
+    return k
 
 
 # 마지막 OpenAI 임베딩 호출의 토큰 수(비용 모니터링용).
 LAST_EMBED_TOKENS = 0
 
 
-def embed_texts(texts: list[str]) -> list[list[float]]:
+def embed_texts(texts: list[str], api_key: str | None = None) -> list[list[float]]:
     """문자열 리스트 → dense 벡터 리스트 (OpenAI 임베딩 API)."""
     global LAST_EMBED_TOKENS
-    client = _openai_client()
+    client = _openai_client(resolve_key(api_key))
     kwargs = {"model": config.OPENAI_EMBED_MODEL}
     if config.OPENAI_EMBED_DIM:          # 차원 축소 옵션
         kwargs["dimensions"] = config.OPENAI_EMBED_DIM
@@ -54,7 +62,7 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
     return out
 
 
-# ── ⑤ Chroma 클라이언트 (로컬 영속 / 원격 HTTP) ─────────
+# ── 5. Chroma 클라이언트 (로컬 영속 / 원격 HTTP) ─────────
 @lru_cache(maxsize=1)
 def get_chroma_client():
     import chromadb
@@ -87,7 +95,7 @@ def get_chroma_collection(name: str | None = None):
     return col
 
 
-# ── ⑤ BM25 인덱스 영속화 (피클, 백엔드별 경로) ──────────
+# ── 5. BM25 인덱스 영속화 (피클, 백엔드별 경로) ──────────
 def save_bm25(bm25_obj, tokenized_corpus, chunk_ids):
     config.STORAGE_DIR.mkdir(parents=True, exist_ok=True)
     with open(config.bm25_path(), "wb") as f:

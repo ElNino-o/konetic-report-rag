@@ -29,8 +29,8 @@ PDF_SUBDIRS = ["country_report", "policy_report"]
 METADATA_XLSX = DATA_DIR / "report_list.xlsx"   # 메타데이터 엑셀 (시트 2개)
 
 STORAGE_DIR = ROOT / "storage"              # 인덱스 영속화 위치 (드라이브)
-CHROMA_DIR = STORAGE_DIR / "chroma"         # ⑤ Chroma 벡터DB 파일
-CHUNK_DUMP = STORAGE_DIR / "chunks.jsonl"   # ③ 청크 원문 백업 (백엔드 공통)
+CHROMA_DIR = STORAGE_DIR / "chroma"         # 5. Chroma 벡터DB 파일
+CHUNK_DUMP = STORAGE_DIR / "chunks.jsonl"   # 3. 청크 원문 백업 (백엔드 공통)
 
 
 def pdf_dirs() -> list[Path]:
@@ -76,7 +76,7 @@ CHROMA_HTTP_SSL = os.getenv("CHROMA_HTTP_SSL", "false").lower() == "true"
 CHROMA_HTTP_TOKEN = os.getenv("CHROMA_HTTP_TOKEN", "")    # 서버 인증 토큰(선택)
 
 
-# ── ① 메타데이터 엑셀 스키마 (report_list.xlsx 실제 열) ──
+# ── 1. 메타데이터 엑셀 스키마 (report_list.xlsx 실제 열) ──
 # 시트: ["국가별 보고서", "정책규제보고서"]
 # 열  : 번호 · 환경분류 · 국가 · 제목 · 내용 · 태그 · 파일명
 META_KEY_COLUMN = "파일명"                  # PDF 파일명 — PDF 파일과 매핑하는 키
@@ -91,19 +91,12 @@ META_COLUMNS = {
 #   발행연도: 파일명 접두사 "(25AR-..)" 의 앞 2자리(25) → 2025 로 추론
 #   출처    : 시트명(국가별 보고서 / 정책규제보고서) 을 사용
 
-# ── ②/③ 파싱·청킹 파라미터 ──────────────────────────────
-OCR_LANG = "kor+eng"        # Tesseract 언어팩
-OCR_MIN_CHARS = 50          # 페이지 텍스트가 이보다 적으면 스캔본으로 보고 OCR 시도
-CHUNK_TOKEN_NUM = 256       # 청크 목표 토큰수 (RAGFlow naive_merge 기본값 128을 보고서용으로 확대)
-CHUNK_OVERLAP = 0.1         # 청크 간 중첩 비율 (10%)
-PARA_DELIMITERS = "\n\n"    # 문단 분할 기준 (규칙 기반)
-
-# ── ④ 임베딩 (OpenAI 단일) ──────────────────────────────
+# ── 4. 임베딩 (OpenAI 단일) ──────────────────────────────
 OPENAI_EMBED_MODEL = os.getenv("OPENAI_EMBED_MODEL", "text-embedding-3-large")
 # 차원 축소 지원(3-large=3072, 3-small=1536). 0이면 모델 기본값 사용.
 OPENAI_EMBED_DIM = int(os.getenv("OPENAI_EMBED_DIM", "0"))
 
-# ── ③ 리랭킹 (선택) ─────────────────────────────────────
+# ── 3. 리랭킹 (선택) ─────────────────────────────────────
 #   "off"    : 리랭킹 생략(하이브리드 점수 순서 그대로) — 가장 빠름
 #   "openai" : OpenAI LLM 리스트와이즈 리랭크(API 1회) — 빠름·소액 비용
 RERANK_BACKEND = os.getenv("RERANK_BACKEND", "openai")   # "off" | "openai"
@@ -130,7 +123,7 @@ TOP_K_RETRIEVE = 20           # 1차 후보 수
 TOP_N_RERANK = 5             # 리랭킹/LLM 컨텍스트로 넘길 최종 개수
 SIMILARITY_THRESHOLD = 0.1    # 최소 유사도
 
-# ── ④ LLM (답변 생성) — OpenAI 단일 ─────────────────────
+# ── 4. LLM (답변 생성) — OpenAI 단일 ─────────────────────
 # API 키는 코드에 직접 쓰지 않고 .env 의 OPENAI_API_KEY 에서 불러온다.
 # OPENAI_BASE_URL 을 비우면 openai 라이브러리 기본값(https://api.openai.com/v1) 사용.
 # 주의: openai 클라이언트는 빈 문자열 OPENAI_BASE_URL 도 직접 읽어 'protocol 누락' 오류를

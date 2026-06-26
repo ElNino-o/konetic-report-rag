@@ -1,7 +1,7 @@
 """
 구조 인식 청커 (KOTRA 국가별/정책규제 보고서 전용)
 
-② 문서 파싱 + ③ 청킹을 한 번에 수행한다. 규칙 기반(모델 불필요)으로
+2. 문서 파싱 + 3. 청킹을 한 번에 수행한다. 규칙 기반(모델 불필요)으로
 보고서의 논리 구조를 추출해 청크 단위로 자른다.
 
 산출 청크 스키마(요청하신 샘플과 동일 계열):
@@ -22,7 +22,6 @@ import re
 
 import pdfplumber
 
-import config
 from metering import get_logger
 
 log = get_logger()
@@ -92,10 +91,6 @@ def _body_lines(page, table_boxes: list) -> list[str]:
 
     txt = page.filter(keep).extract_text(x_tolerance=2) or ""
     return [_clean(ln) for ln in txt.split("\n") if _clean(ln)]
-
-
-def _is_heading(line: str) -> bool:
-    return bool(RE_CHAPTER.match(line) or RE_SECTION.match(line) or RE_SUBSEC.match(line))
 
 
 # ── 메인: PDF → 청크 리스트 ─────────────────────────────

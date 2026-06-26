@@ -23,18 +23,18 @@ def main():
         raise FileNotFoundError(
             f"{config.CHUNK_DUMP} 없음 — 먼저 python index_pipeline.py 로 청킹하세요."
         )
-    all_chunks = [json.loads(l) for l in open(config.CHUNK_DUMP, encoding="utf-8")]
+    all_chunks = [json.loads(line) for line in open(config.CHUNK_DUMP, encoding="utf-8")]
     retr = [c for c in all_chunks if c["chunk_type"] != "reference"]
     ids = [c["chunk_id"] for c in retr]
     docs = [c["text"] for c in retr]
     embed_input = [sc.context_text(c) for c in retr]
     metas = [{k: str(c.get(k, "")) for k in META_FIELDS} for c in retr]
 
-    print(f"④ OpenAI 임베딩: {len(embed_input)} 청크 → {config.OPENAI_EMBED_MODEL}")
+    print(f"4. OpenAI 임베딩: {len(embed_input)} 청크 → {config.OPENAI_EMBED_MODEL}")
     vectors = embed_texts(embed_input)
     print(f"   차원: {len(vectors[0])}")
 
-    print(f"⑤ Chroma 적재: {config.collection_name()}")
+    print(f"5. Chroma 적재: {config.collection_name()}")
     col = get_chroma_collection()
     existing = col.get()["ids"]
     if existing:
@@ -44,13 +44,13 @@ def main():
         col.add(ids=ids[i:i + B], embeddings=vectors[i:i + B],
                 documents=docs[i:i + B], metadatas=metas[i:i + B])
 
-    print(f"⑤ BM25 적재: {config.bm25_path().name}")
+    print(f"5. BM25 적재: {config.bm25_path().name}")
     tok = [simple_tokenize(t) for t in embed_input]
     save_bm25(BM25Okapi(tok), tok, ids)
 
     import vector_store
     vector_store.save_npz(ids, vectors)
-    print(f"⑤ npz 저장: {config.npz_path().name}")
+    print(f"5. npz 저장: {config.npz_path().name}")
 
     print(f"✅ OpenAI 인덱스 완료: {len(ids)} 청크")
 

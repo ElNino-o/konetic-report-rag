@@ -1,11 +1,11 @@
 """
-② 질의응답 파이프라인 (런타임)
+2. 질의응답 파이프라인 (런타임)
 
 흐름:
-  ① 사용자 질의 (자연어)
-  ② 하이브리드 검색 (질의 임베딩 · 벡터+키워드)   ← OpenAI 임베딩 · BM25 · 벡터저장소
-  ③ 리랭킹 (off / openai LLM 리스트와이즈)
-  ④ LLM 답변 생성 (근거 한정 · 출처·페이지 인용)  ← OpenAI(gpt-5.4-nano)
+  1. 사용자 질의 (자연어)
+  2. 하이브리드 검색 (질의 임베딩 · 벡터+키워드)   ← OpenAI 임베딩 · BM25 · 벡터저장소
+  3. 리랭킹 (off / openai LLM 리스트와이즈)
+  4. LLM 답변 생성 (근거 한정 · 출처·페이지 인용)  ← OpenAI(gpt-5.4-nano)
 
 모니터링: 단계별 처리시간 + OpenAI 토큰/비용 추정을 서버 로그(metering)와
           answer() 반환값(timings/usage)으로 제공.
@@ -36,18 +36,19 @@ LAST_LLM_USAGE: tuple | None = None
 
 
 # ════════════════════════════════════════════════════════
-# ② 하이브리드 검색 (벡터 + 키워드)
+# 2. 하이브리드 검색 (벡터 + 키워드)
 #    - 벡터: 질의 임베딩 → vector_store(chroma/memory/remote) 코사인 검색
 #    - 키워드: BM25 점수
 #    - 융합: final = w·vector + (1-w)·bm25   (RAGFlow 융합식, 기본 w=0.3)
 # ════════════════════════════════════════════════════════
-def hybrid_search(query: str, filters: dict | None = None, top_k: int | None = None):
+def hybrid_search(query: str, filters: dict | None = None, top_k: int | None = None,
+                  api_key: str | None = None):
     top_k = top_k or config.TOP_K_RETRIEVE
 
     # ── 2-a. 벡터 검색 (저장소 백엔드 추상화) ──
     t0 = time.time()
-    qvec = embed_texts([query])[0]
-    log.info("② 임베딩(openai) 질의 1건 %.2fs (tokens=%d)",
+    qvec = embed_texts([query], api_key=api_key)[0]
+    log.info("2. 임베딩(openai) 질의 1건 %.2fs (tokens=%d)",
              time.time() - t0, common.LAST_EMBED_TOKENS)
     hits = vector_store.search(qvec, top_k, filters or None)
     vec_sim = {h["id"]: h["vec_sim"] for h in hits}
@@ -74,17 +75,17 @@ def hybrid_search(query: str, filters: dict | None = None, top_k: int | None = N
         fused.append(meta)
     fused.sort(key=lambda x: x["score"], reverse=True)
     out = [c for c in fused if c["score"] >= config.SIMILARITY_THRESHOLD] or fused
-    log.info("② 하이브리드 검색(%s): 후보 %d건", config.VECTOR_BACKEND, len(out))
+    log.info("2. 하이브리드 검색(%s): 후보 %d건", config.VECTOR_BACKEND, len(out))
     return out
 
 
 # ════════════════════════════════════════════════════════
-# ③ 리랭킹 (off / openai LLM 리스트와이즈)
+# 3. 리랭킹 (off / openai LLM 리스트와이즈)
 # ════════════════════════════════════════════════════════
-def _rerank_openai(query, candidates, top_n):
+def _rerank_openai(query, candidates, top_n, api_key=None):
     """OpenAI LLM 리스트와이즈 리랭크 — API 1회로 관련도 순 정렬."""
     global LAST_RERANK_USAGE
-    client = common._openai_client()   # 타임아웃·재시도 공유
+    client = common._openai_client(common.resolve_key(api_key))
     listing = "\n".join(
         f"[{i}] {c['text'][:280].strip()}" for i, c in enumerate(candidates)
     )
@@ -123,7 +124,7 @@ def _rerank_openai(query, candidates, top_n):
 
 
 def rerank(query: str, candidates: list[dict], top_n: int | None = None,
-           backend: str | None = None):
+           backend: str | None = None, api_key: str | None = None):
     global LAST_RERANK_USAGE
     LAST_RERANK_USAGE = None
     top_n = top_n or config.TOP_N_RERANK
@@ -131,8 +132,8 @@ def rerank(query: str, candidates: list[dict], top_n: int | None = None,
     if be != "openai" or not candidates:   # off(또는 미지원) → 융합점수 순서 그대로
         return candidates[:top_n]
     t0 = time.time()
-    out = _rerank_openai(query, candidates, top_n)
-    log.info("③ 리랭킹(%s): %d→%d건 %.2fs%s", be, len(candidates), len(out),
+    out = _rerank_openai(query, candidates, top_n, api_key=api_key)
+    log.info("3. 리랭킹(%s): %d→%d건 %.2fs%s", be, len(candidates), len(out),
              time.time() - t0,
              f" tokens={LAST_RERANK_USAGE[0]}+{LAST_RERANK_USAGE[1]}"
              if LAST_RERANK_USAGE else "")
@@ -140,7 +141,7 @@ def rerank(query: str, candidates: list[dict], top_n: int | None = None,
 
 
 # ════════════════════════════════════════════════════════
-# ④ LLM 답변 생성 (근거 한정 + 출처·페이지 인용)
+# 4. LLM 답변 생성 (근거 한정 + 출처·페이지 인용)
 # ════════════════════════════════════════════════════════
 SYSTEM_PROMPT = (
     "당신은 환경 정책 보고서 분석 도우미입니다. "
@@ -165,15 +166,12 @@ def _build_context(chunks: list[dict]) -> str:
     return "\n\n".join(lines)
 
 
-def _generate_openai(messages) -> str:
-    """OpenAI API. 키는 .env/secrets 의 OPENAI_API_KEY 에서 로드(config 경유)."""
+def _generate_openai(messages, api_key=None) -> str:
+    """OpenAI API. 키는 세션(BYOK) 또는 .env/secrets 에서 로드."""
     global LAST_LLM_USAGE
     from openai import BadRequestError
 
-    if not config.OPENAI_API_KEY:
-        raise RuntimeError("OPENAI_API_KEY 가 비어 있습니다. .env/secrets 에 키를 설정하세요.")
-
-    client = common._openai_client()   # 타임아웃·재시도 공유
+    client = common._openai_client(common.resolve_key(api_key))
     base = {"model": config.OPENAI_MODEL, "messages": messages}
 
     # 신형 모델(gpt-5 계열 등)은 max_completion_tokens 를 쓰고 temperature 기본값만 허용.
@@ -203,7 +201,7 @@ def _extractive_answer(query: str, chunks: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def generate_answer(query: str, chunks: list[dict]) -> str:
+def generate_answer(query: str, chunks: list[dict], api_key: str | None = None) -> str:
     global LAST_LLM_USAGE
     LAST_LLM_USAGE = None
     if not chunks:
@@ -213,7 +211,7 @@ def generate_answer(query: str, chunks: list[dict]) -> str:
         {"role": "user", "content": f"[질문]\n{query}\n\n[근거]\n{_build_context(chunks)}"},
     ]
     try:
-        return _generate_openai(messages)
+        return _generate_openai(messages, api_key=api_key)
     except Exception as e:
         # 네트워크/키 오류 등 → 발췌형 폴백으로 결과는 항상 보여준다
         log.warning("[LLM 폴백] %s: %s", type(e).__name__, e)
@@ -242,28 +240,33 @@ def _collect_usage() -> dict:
 
 
 # ════════════════════════════════════════════════════════
-# 오케스트레이터: ① → ② → ③ → ④  (+ 시간/토큰/비용 모니터링)
+# 오케스트레이터: 1. → 2. → 3. → 4. (+ 시간/토큰/비용 모니터링)
 # ════════════════════════════════════════════════════════
-def answer(query: str, filters: dict | None = None, rerank_backend: str | None = None):
+def answer(query: str, filters: dict | None = None, rerank_backend: str | None = None,
+           api_key: str | None = None, candidates: list[dict] | None = None):
+    """질의응답. candidates 를 주면(업로드 모드) 벡터검색을 건너뛰고 재사용한다."""
     be = rerank_backend or config.RERANK_BACKEND
     log.info("─" * 8 + " 질의: %r (embed=openai, rerank=%s, llm=%s)",
              query, be, config.OPENAI_MODEL)
     t = {}
-    t0 = time.time()
-    candidates = hybrid_search(query, filters)        # ②
-    t["retrieve"] = time.time() - t0
+    if candidates is None:
+        t0 = time.time()
+        candidates = hybrid_search(query, filters, api_key=api_key)
+        t["retrieve"] = time.time() - t0
+    else:
+        t["retrieve"] = 0.0                            # 업로드: 세션 검색은 호출측에서 수행
 
     t0 = time.time()
-    top = rerank(query, candidates, backend=be)        # ③
+    top = rerank(query, candidates, backend=be, api_key=api_key)
     t["rerank"] = time.time() - t0
 
     t0 = time.time()
-    text = generate_answer(query, top)                 # ④
+    text = generate_answer(query, top, api_key=api_key)
     t["llm"] = time.time() - t0
 
     usage = _collect_usage()
     t["total"] = t["retrieve"] + t["rerank"] + t["llm"]
-    log.info("④ 답변 완료 %.2fs (검색 %.2f · 리랭크 %.2f · LLM %.2f) | "
+    log.info("4. 답변 완료 %.2fs (검색 %.2f · 리랭크 %.2f · LLM %.2f) | "
              "토큰 embed=%d rerank=%d llm=%d+%d | 추정비용 %s",
              t["total"], t["retrieve"], t["rerank"], t["llm"],
              usage["embed_tokens"], usage["rerank_tokens"],
