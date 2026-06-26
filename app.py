@@ -30,6 +30,28 @@ from metering import get_logger
 st.set_page_config(page_title="코네틱 국가별보고서, 규제보고서 Q&A", layout="wide")
 get_logger().info("[app] 시작 · 설정요약: %s", config.summary())
 
+
+# ── 선택적 접근 게이트 (공개 배포 시 비용 남용 방지) ──────
+# secrets/env 에 APP_PASSWORD 가 있으면 입력해야 사용 가능. 없으면 게이트 없음(로컬).
+def _gate():
+    pw = os.getenv("APP_PASSWORD", "")
+    if not pw:
+        return
+    if st.session_state.get("authed"):
+        return
+    st.title("🔒 코네틱 보고서 Q&A")
+    entered = st.text_input("접속 비밀번호", type="password")
+    if st.button("입장"):
+        if entered == pw:
+            st.session_state["authed"] = True
+            st.rerun()
+        else:
+            st.error("비밀번호가 올바르지 않습니다.")
+    st.stop()
+
+
+_gate()
+
 TYPE_ICON = {"summary": "📌", "body": "📄", "table": "📊",
              "interview": "🎤", "reference": "🔗"}
 
@@ -75,11 +97,11 @@ def render_sources(sources):
 with st.sidebar:
     st.header("⚙️ 설정")
     RR_OPTS = ["off", "openai"]
+    # 멀티유저 안전: 전역 config 를 바꾸지 않고 세션 선택값을 답변 호출에 전달
     rr = st.radio("리랭킹", RR_OPTS,
                   captions=["끄기 (가장 빠름)", f"OpenAI LLM ({config.OPENAI_RERANK_MODEL})"],
                   index=RR_OPTS.index(config.RERANK_BACKEND)
                   if config.RERANK_BACKEND in RR_OPTS else 1)
-    config.RERANK_BACKEND = rr
 
     st.divider()
     st.header("📊 인덱스 상태")
@@ -87,7 +109,7 @@ with st.sidebar:
     st.metric("청크 수", f"{n_chunks} 개")
     st.caption(f"벡터 저장소: **{config.VECTOR_BACKEND}** · `{config.collection_name()}`")
     st.caption(f"임베딩: OpenAI {config.OPENAI_EMBED_MODEL}")
-    st.caption(f"리랭킹: {config.RERANK_BACKEND} · LLM: {config.OPENAI_MODEL}")
+    st.caption(f"리랭킹: {rr} · LLM: {config.OPENAI_MODEL}")
 
     sess = st.session_state.setdefault("usage_total",
                                        {"cost": 0.0, "queries": 0, "tokens": 0})
@@ -140,11 +162,10 @@ with left:
     if run and query.strip():
         qa = _load_qa()
         get_logger().info("[app] 질의제출 q=%r | vector=%s(%s) rerank=%s",
-                          query, config.VECTOR_BACKEND, config.collection_name(),
-                          config.RERANK_BACKEND)
+                          query, config.VECTOR_BACKEND, config.collection_name(), rr)
         try:
             with st.spinner("② 검색 → ③ 리랭킹 → ④ 답변 생성..."):
-                result = qa.answer(query)      # 전체 문서 대상(필터 없음)
+                result = qa.answer(query, rerank_backend=rr)   # 세션 선택값 전달
         except Exception as e:
             get_logger().exception("[app] answer 실패")
             st.error(f"처리 중 오류가 발생했습니다: {type(e).__name__}: {e}\n\n"

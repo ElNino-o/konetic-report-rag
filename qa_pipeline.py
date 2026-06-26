@@ -122,11 +122,12 @@ def _rerank_openai(query, candidates, top_n):
     return ranked[:top_n]
 
 
-def rerank(query: str, candidates: list[dict], top_n: int | None = None):
+def rerank(query: str, candidates: list[dict], top_n: int | None = None,
+           backend: str | None = None):
     global LAST_RERANK_USAGE
     LAST_RERANK_USAGE = None
     top_n = top_n or config.TOP_N_RERANK
-    be = config.RERANK_BACKEND
+    be = backend or config.RERANK_BACKEND   # 전역 대신 호출 인자 우선(멀티유저 안전)
     if be != "openai" or not candidates:   # off(또는 미지원) → 융합점수 순서 그대로
         return candidates[:top_n]
     t0 = time.time()
@@ -243,16 +244,17 @@ def _collect_usage() -> dict:
 # ════════════════════════════════════════════════════════
 # 오케스트레이터: ① → ② → ③ → ④  (+ 시간/토큰/비용 모니터링)
 # ════════════════════════════════════════════════════════
-def answer(query: str, filters: dict | None = None):
+def answer(query: str, filters: dict | None = None, rerank_backend: str | None = None):
+    be = rerank_backend or config.RERANK_BACKEND
     log.info("─" * 8 + " 질의: %r (embed=openai, rerank=%s, llm=%s)",
-             query, config.RERANK_BACKEND, config.OPENAI_MODEL)
+             query, be, config.OPENAI_MODEL)
     t = {}
     t0 = time.time()
     candidates = hybrid_search(query, filters)        # ②
     t["retrieve"] = time.time() - t0
 
     t0 = time.time()
-    top = rerank(query, candidates)                    # ③
+    top = rerank(query, candidates, backend=be)        # ③
     t["rerank"] = time.time() - t0
 
     t0 = time.time()
