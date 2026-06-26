@@ -38,6 +38,24 @@ BACKEND_DIM = {"bge-m3": "1024",
                "openai": str(config.OPENAI_EMBED_DIM or 3072)}
 
 
+def _local_bge_available() -> bool:
+    """로컬 bge-m3(임베딩/리랭크) 사용 가능 여부.
+    클라우드(슬림 의존성: torch/sentence-transformers 미설치)에선 False →
+    UI 에서 bge-m3·로컬 리랭크·임베딩 비교 모드를 숨겨 배포 에러를 방지한다."""
+    import importlib.util
+    return importlib.util.find_spec("sentence_transformers") is not None
+
+
+LOCAL_BGE = _local_bge_available()
+
+# 클라우드에서 bge-m3/local 이 잘못 지정돼도 안전하게 openai 로 고정
+if not LOCAL_BGE:
+    if config.EMBED_BACKEND == "bge-m3":
+        config.EMBED_BACKEND = "openai"
+    if config.RERANK_BACKEND == "local":
+        config.RERANK_BACKEND = "openai"
+
+
 # ── 인덱싱 산출물(청크 백업) 자동 로드 ───────────────────
 @st.cache_data
 def load_chunks():
@@ -95,23 +113,34 @@ def render_sources(sources):
 # ════════════════════════════════════════════════════════
 with st.sidebar:
     st.header("⚙️ 설정")
-    mode = st.radio("모드", ["질의응답", "임베딩 비교"])
+    # 임베딩 비교 모드는 로컬(bge-m3 가능)에서만 노출 — 클라우드에선 질의응답만
+    mode_opts = ["질의응답"] + (["임베딩 비교"] if LOCAL_BGE else [])
+    mode = st.radio("모드", mode_opts)
 
     if mode == "질의응답":
-        backend = st.radio(
-            "임베딩 백엔드", ["bge-m3", "openai"],
-            captions=["로컬 BGE-M3 (1024d)", f"OpenAI {config.OPENAI_EMBED_MODEL}"],
-            index=0 if config.EMBED_BACKEND == "bge-m3" else 1,
-        )
-        config.EMBED_BACKEND = backend
+        if LOCAL_BGE:
+            backend = st.radio(
+                "임베딩 백엔드", ["bge-m3", "openai"],
+                captions=["로컬 BGE-M3 (1024d)", f"OpenAI {config.OPENAI_EMBED_MODEL}"],
+                index=0 if config.EMBED_BACKEND == "bge-m3" else 1,
+            )
+            config.EMBED_BACKEND = backend
+        else:
+            # 클라우드: OpenAI 임베딩 고정 (bge-m3 선택지 숨김)
+            config.EMBED_BACKEND = "openai"
+            st.caption(f"임베딩: OpenAI {config.OPENAI_EMBED_MODEL} (고정)")
 
-    # 리랭킹 백엔드 선택 (병목 제어): 끄기 / 로컬(CPU 느림) / OpenAI(API 빠름)
-    RR_OPTS = ["off", "local", "openai"]
-    RR_CAP = ["끄기 (가장 빠름)", "로컬 bge-reranker (CPU·느림)",
-              f"OpenAI LLM ({config.OPENAI_RERANK_MODEL})"]
+    # 리랭킹 백엔드: 로컬에선 off/local/openai, 클라우드에선 off/openai
+    if LOCAL_BGE:
+        RR_OPTS = ["off", "local", "openai"]
+        RR_CAP = ["끄기 (가장 빠름)", "로컬 bge-reranker (CPU·느림)",
+                  f"OpenAI LLM ({config.OPENAI_RERANK_MODEL})"]
+    else:
+        RR_OPTS = ["off", "openai"]
+        RR_CAP = ["끄기 (가장 빠름)", f"OpenAI LLM ({config.OPENAI_RERANK_MODEL})"]
     rr = st.radio("리랭킹", RR_OPTS, captions=RR_CAP,
                   index=RR_OPTS.index(config.RERANK_BACKEND)
-                  if config.RERANK_BACKEND in RR_OPTS else 2)
+                  if config.RERANK_BACKEND in RR_OPTS else len(RR_OPTS) - 1)
     config.RERANK_BACKEND = rr
 
     st.divider()
