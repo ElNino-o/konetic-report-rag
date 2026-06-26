@@ -2,8 +2,8 @@
 공용 리소스 로더 (임베딩 모델 · Chroma 클라이언트 · BM25 영속화).
 
 RAGFlow 대응:
-- 임베딩  ↔ rag/llm/embedding_model.py (BuiltinEmbed → BAAI/bge-m3)
-- 벡터DB  ↔ rag/utils/es_conn.py (RAGFlow 는 ES/Infinity, 여기선 Chroma 로 대체)
+- 임베딩  ↔ rag/llm/embedding_model.py (여기선 OpenAI 임베딩 API)
+- 벡터DB  ↔ rag/utils/es_conn.py (RAGFlow 는 ES/Infinity, 여기선 Chroma/numpy)
 - BM25    ↔ ES 의 full-text 점수를 rank_bm25 로 대체
 """
 from __future__ import annotations
@@ -19,26 +19,7 @@ log = get_logger()
 # chromadb 는 무겁고 memory 백엔드(클라우드)에선 불필요 → 지연 import 한다.
 
 
-# ── ④ 임베딩 (백엔드 교체형) ────────────────────────────
-@lru_cache(maxsize=1)
-def get_embedder():
-    """로컬 BGE-M3 인코더를 1회만 로드한다 (sentence-transformers)."""
-    from sentence_transformers import SentenceTransformer
-
-    return SentenceTransformer(config.EMBED_MODEL)
-
-
-def _embed_bge(texts: list[str]) -> list[list[float]]:
-    model = get_embedder()
-    vecs = model.encode(
-        texts,
-        batch_size=16,
-        normalize_embeddings=True,   # cosine 검색용 L2 정규화
-        show_progress_bar=False,
-    )
-    return vecs.tolist()
-
-
+# ── ④ 임베딩 (OpenAI 단일) ──────────────────────────────
 @lru_cache(maxsize=1)
 def _openai_client():
     from openai import OpenAI
@@ -46,11 +27,12 @@ def _openai_client():
     return OpenAI(base_url=config.OPENAI_BASE_URL, api_key=config.OPENAI_API_KEY)
 
 
-# 마지막 OpenAI 임베딩 호출의 토큰 수(비용 모니터링용). bge 백엔드면 0.
+# 마지막 OpenAI 임베딩 호출의 토큰 수(비용 모니터링용).
 LAST_EMBED_TOKENS = 0
 
 
-def _embed_openai(texts: list[str]) -> list[list[float]]:
+def embed_texts(texts: list[str]) -> list[list[float]]:
+    """문자열 리스트 → dense 벡터 리스트 (OpenAI 임베딩 API)."""
     global LAST_EMBED_TOKENS
     client = _openai_client()
     kwargs = {"model": config.OPENAI_EMBED_MODEL}
@@ -63,31 +45,11 @@ def _embed_openai(texts: list[str]) -> list[list[float]]:
         batch = [t.replace("\n", " ") for t in texts[i:i + B]]
         resp = client.embeddings.create(input=batch, **kwargs)
         out.extend(d.embedding for d in resp.data)
-        tokens += getattr(resp, "usage", None).total_tokens if getattr(resp, "usage", None) else 0
+        tokens += resp.usage.total_tokens if getattr(resp, "usage", None) else 0
     LAST_EMBED_TOKENS = tokens
+    log.debug("[embed] openai n=%d dim=%d tokens=%d",
+              len(out), len(out[0]) if out else 0, tokens)
     return out
-
-
-def _embed_bge_reset(texts):
-    global LAST_EMBED_TOKENS
-    LAST_EMBED_TOKENS = 0          # 로컬 임베딩은 비용 없음
-    return _embed_bge(texts)
-
-
-def embed_texts(texts: list[str]) -> list[list[float]]:
-    """문자열 리스트 → dense 벡터 리스트. 백엔드(config.EMBED_BACKEND)별 분기."""
-    vecs = _embed_openai(texts) if config.EMBED_BACKEND == "openai" else _embed_bge_reset(texts)
-    log.debug("[embed] backend=%s n=%d dim=%d tokens=%d",
-              config.EMBED_BACKEND, len(vecs), len(vecs[0]) if vecs else 0, LAST_EMBED_TOKENS)
-    return vecs
-
-
-# ── ③ BGE-reranker (선택, 싱글톤) ───────────────────────
-@lru_cache(maxsize=1)
-def get_reranker():
-    from sentence_transformers import CrossEncoder
-
-    return CrossEncoder(config.RERANK_MODEL)
 
 
 # ── ⑤ Chroma 클라이언트 (로컬 영속 / 원격 HTTP) ─────────

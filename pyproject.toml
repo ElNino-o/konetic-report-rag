@@ -1,0 +1,29 @@
+[project]
+name = "konetic-report-rag"
+version = "0.1.0"
+description = "코네틱 국가별/규제 보고서 RAG Q&A (OpenAI 전용)"
+requires-python = ">=3.10"
+
+# ── 런타임(앱 서빙) 의존성 — 클라우드도 이것만 필요 ──
+#   임베딩/리랭크/LLM 은 OpenAI API, 검색은 numpy(memory) 또는 chromadb(아래 extra)
+dependencies = [
+    "streamlit>=1.36",
+    "openai>=1.40",
+    "python-dotenv>=1.0",
+    "numpy>=1.26",
+    "rank-bm25>=0.2.2",
+]
+
+[project.optional-dependencies]
+# ── 오프라인 인덱싱(로컬 전용) — PDF 파싱·청킹·Chroma 적재 ──
+indexing = [
+    "pdfplumber>=0.11",
+    "PyMuPDF>=1.24",
+    "pandas>=2.0",
+    "openpyxl>=3.1",
+    "chromadb>=0.5",
+]
+
+[tool.uv]
+# 이 저장소는 라이브러리가 아니라 앱이다 → 패키지 빌드하지 않음
+package = false

@@ -3,9 +3,9 @@
 
 흐름:
   ① 사용자 질의 (자연어)
-  ② 하이브리드 검색 (질의 임베딩 · 벡터+키워드)   ← bge-m3/openai · BM25 · Chroma
-  ③ 리랭킹 (백엔드 교체형: off / local(bge) / openai(LLM 리스트와이즈))
-  ④ LLM 답변 생성 (근거 한정 · 출처·페이지 인용)  ← OpenAI(gpt-5.4-nano) 등
+  ② 하이브리드 검색 (질의 임베딩 · 벡터+키워드)   ← OpenAI 임베딩 · BM25 · 벡터저장소
+  ③ 리랭킹 (off / openai LLM 리스트와이즈)
+  ④ LLM 답변 생성 (근거 한정 · 출처·페이지 인용)  ← OpenAI(gpt-5.4-nano)
 
 모니터링: 단계별 처리시간 + OpenAI 토큰/비용 추정을 서버 로그(metering)와
           answer() 반환값(timings/usage)으로 제공.
@@ -23,7 +23,6 @@ import metering
 import vector_store
 from common import (
     embed_texts,
-    get_reranker,
     load_bm25,
     simple_tokenize,
 )
@@ -48,8 +47,8 @@ def hybrid_search(query: str, filters: dict | None = None, top_k: int | None = N
     # ── 2-a. 벡터 검색 (저장소 백엔드 추상화) ──
     t0 = time.time()
     qvec = embed_texts([query])[0]
-    log.info("② 임베딩(%s) 질의 1건 %.2fs (tokens=%d)",
-             config.EMBED_BACKEND, time.time() - t0, common.LAST_EMBED_TOKENS)
+    log.info("② 임베딩(openai) 질의 1건 %.2fs (tokens=%d)",
+             time.time() - t0, common.LAST_EMBED_TOKENS)
     hits = vector_store.search(qvec, top_k, filters or None)
     vec_sim = {h["id"]: h["vec_sim"] for h in hits}
 
@@ -80,18 +79,8 @@ def hybrid_search(query: str, filters: dict | None = None, top_k: int | None = N
 
 
 # ════════════════════════════════════════════════════════
-# ③ 리랭킹 (백엔드 교체형: off / local(bge) / openai(LLM))
+# ③ 리랭킹 (off / openai LLM 리스트와이즈)
 # ════════════════════════════════════════════════════════
-def _rerank_local(query, candidates, top_n):
-    """로컬 CrossEncoder(BGE-reranker) — 품질↑·CPU 느림."""
-    reranker = get_reranker()
-    scores = reranker.predict([[query, c["text"]] for c in candidates])
-    for c, s in zip(candidates, scores):
-        c["rerank_score"] = float(s)
-    candidates.sort(key=lambda x: x["rerank_score"], reverse=True)
-    return candidates[:top_n]
-
-
 def _rerank_openai(query, candidates, top_n):
     """OpenAI LLM 리스트와이즈 리랭크 — API 1회로 관련도 순 정렬."""
     global LAST_RERANK_USAGE
@@ -140,11 +129,10 @@ def rerank(query: str, candidates: list[dict], top_n: int | None = None):
     LAST_RERANK_USAGE = None
     top_n = top_n or config.TOP_N_RERANK
     be = config.RERANK_BACKEND
-    if be == "off" or not candidates:
+    if be != "openai" or not candidates:   # off(또는 미지원) → 융합점수 순서 그대로
         return candidates[:top_n]
     t0 = time.time()
-    out = _rerank_openai(query, candidates, top_n) if be == "openai" \
-        else _rerank_local(query, candidates, top_n)
+    out = _rerank_openai(query, candidates, top_n)
     log.info("③ 리랭킹(%s): %d→%d건 %.2fs%s", be, len(candidates), len(out),
              time.time() - t0,
              f" tokens={LAST_RERANK_USAGE[0]}+{LAST_RERANK_USAGE[1]}"
@@ -159,7 +147,7 @@ SYSTEM_PROMPT = (
     "당신은 환경 정책 보고서 분석 도우미입니다. "
     "반드시 아래 [근거]에 있는 내용만 사용해 한국어로 답하세요. "
     "근거에 없는 내용은 '제공된 자료에서 확인할 수 없습니다'라고 답하세요. "
-    "답변 문장 끝에는 사용한 근거의 번호를 [1], [2] 형식으로 표기하세요."
+    "답변 문장 끝에는 사용한 근거의 번호를 [1], [2], [3] 형식으로 표기하세요."
 )
 
 
@@ -206,49 +194,9 @@ def _generate_openai(messages) -> str:
     return resp.choices[0].message.content
 
 
-_HF_PIPE = None
-
-
-def _generate_transformers(messages) -> str:
-    """(A) 로컬 transformers + 4bit 양자화."""
-    global _HF_PIPE
-    if _HF_PIPE is None:
-        import torch
-        from transformers import (
-            AutoModelForCausalLM,
-            AutoTokenizer,
-            BitsAndBytesConfig,
-        )
-
-        quant = (
-            BitsAndBytesConfig(
-                load_in_4bit=True,
-                bnb_4bit_compute_dtype=torch.float16,
-                bnb_4bit_quant_type="nf4",
-            )
-            if config.LLM_LOAD_4BIT
-            else None
-        )
-        tok = AutoTokenizer.from_pretrained(config.LLM_MODEL)
-        model = AutoModelForCausalLM.from_pretrained(
-            config.LLM_MODEL, quantization_config=quant, device_map="auto"
-        )
-        _HF_PIPE = (tok, model)
-    tok, model = _HF_PIPE
-    prompt = tok.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-    inputs = tok(prompt, return_tensors="pt").to(model.device)
-    out = model.generate(
-        **inputs,
-        max_new_tokens=config.LLM_MAX_NEW_TOKENS,
-        temperature=config.LLM_TEMPERATURE,
-        do_sample=config.LLM_TEMPERATURE > 0,
-    )
-    return tok.decode(out[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
-
-
 def _extractive_answer(query: str, chunks: list[dict]) -> str:
-    """LLM 백엔드가 없을 때의 폴백: 상위 근거 발췌 + 인용 번호만 제시."""
-    lines = ["⚠️ *LLM 백엔드가 연결되지 않아 검색된 근거를 발췌해 보여줍니다.*", ""]
+    """LLM 호출 실패 시 폴백: 상위 근거 발췌 + 인용 번호만 제시."""
+    lines = ["⚠️ *LLM 호출에 실패해 검색된 근거를 발췌해 보여줍니다.*", ""]
     for i, c in enumerate(chunks, 1):
         snippet = c["text"].strip().replace("\n", " ")
         snippet = (snippet[:300] + "…") if len(snippet) > 300 else snippet
@@ -266,11 +214,9 @@ def generate_answer(query: str, chunks: list[dict]) -> str:
         {"role": "user", "content": f"[질문]\n{query}\n\n[근거]\n{_build_context(chunks)}"},
     ]
     try:
-        if config.LLM_BACKEND == "transformers":
-            return _generate_transformers(messages)
         return _generate_openai(messages)
     except Exception as e:
-        # Ollama/vLLM 미실행 등 → 발췌형 폴백으로 결과는 항상 보여준다
+        # 네트워크/키 오류 등 → 발췌형 폴백으로 결과는 항상 보여준다
         log.warning("[LLM 폴백] %s: %s", type(e).__name__, e)
         return _extractive_answer(query, chunks)
 
@@ -281,8 +227,7 @@ def generate_answer(query: str, chunks: list[dict]) -> str:
 def _collect_usage() -> dict:
     """이번 질의의 임베딩·리랭크·LLM 토큰과 추정 비용(USD)을 집계."""
     embed_tok = common.LAST_EMBED_TOKENS
-    embed_usd = (metering.embed_cost(config.OPENAI_EMBED_MODEL, embed_tok)
-                 if config.EMBED_BACKEND == "openai" else 0.0)
+    embed_usd = metering.embed_cost(config.OPENAI_EMBED_MODEL, embed_tok)
     rr = LAST_RERANK_USAGE
     rr_usd = metering.chat_cost(rr[2], rr[0], rr[1]) if rr else 0.0
     lm = LAST_LLM_USAGE
@@ -301,8 +246,8 @@ def _collect_usage() -> dict:
 # 오케스트레이터: ① → ② → ③ → ④  (+ 시간/토큰/비용 모니터링)
 # ════════════════════════════════════════════════════════
 def answer(query: str, filters: dict | None = None):
-    log.info("─" * 8 + " 질의: %r (embed=%s, rerank=%s, llm=%s)",
-             query, config.EMBED_BACKEND, config.RERANK_BACKEND, config.OPENAI_MODEL)
+    log.info("─" * 8 + " 질의: %r (embed=openai, rerank=%s, llm=%s)",
+             query, config.RERANK_BACKEND, config.OPENAI_MODEL)
     t = {}
     t0 = time.time()
     candidates = hybrid_search(query, filters)        # ②

@@ -95,8 +95,7 @@ _META_KEYS = ("doc_id", "page", "country", "year", "field", "doc_source",
 
 def search(query_vec, top_k: int, where: dict | None = None) -> list[dict]:
     """벡터 검색 — VECTOR_BACKEND 에 따라 디스패치. vec_sim(코사인) 포함."""
-    log.debug("[search] backend=%s embed=%s where=%s",
-              config.VECTOR_BACKEND, config.EMBED_BACKEND, where)
+    log.debug("[search] backend=%s where=%s", config.VECTOR_BACKEND, where)
     if config.VECTOR_BACKEND == "memory":
         hits = _search_memory(query_vec, top_k, where)
         log.info("[search:memory] '%s' → %d hits", config.npz_path().name, len(hits))

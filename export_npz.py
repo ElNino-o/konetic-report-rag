@@ -1,9 +1,7 @@
 """
 이미 빌드된 Chroma 컬렉션에서 벡터를 추출해 npz 로 저장 (재임베딩 없음).
 
-실행:
-  python export_npz.py            # 현재 EMBED_BACKEND 컬렉션
-  EMBED_BACKEND=openai python export_npz.py
+실행:  python export_npz.py
 
 → storage/<collection>.npz 생성 → VECTOR_BACKEND=memory(A안)·배포에서 사용.
 """

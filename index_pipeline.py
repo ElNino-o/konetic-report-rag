@@ -6,7 +6,7 @@
 흐름:
   ① 메타데이터(엑셀) 읽기 + PDF 매핑            (load_metadata)
   ②③ 구조 인식 파싱·청킹                         (structure_chunker)
-  ④ 임베딩 생성 (BGE-M3, 컨텍스트 헤더 결합)
+  ④ 임베딩 생성 (OpenAI, 컨텍스트 헤더 결합)
   ⑤ 벡터DB 적재 (Chroma + BM25, 드라이브 영속화)
 
 RAGFlow 대응: rag/flow/pipeline.py 의 File→Parser→Chunker→Tokenizer 를
@@ -115,8 +115,8 @@ def build_index(all_chunks: list[dict]):
     embed_input = [sc.context_text(c) for c in retr]            # 컨텍스트 헤더 결합
     metadatas = [{k: str(c.get(k, "")) for k in META_FIELDS} for c in retr]
 
-    # ── ④ 임베딩 생성 (BGE-M3) ──
-    print(f"④ 임베딩 생성: {len(embed_input)} 청크(reference 제외) → BGE-M3")
+    # ── ④ 임베딩 생성 (OpenAI) ──
+    print(f"④ 임베딩 생성: {len(embed_input)} 청크(reference 제외) → OpenAI {config.OPENAI_EMBED_MODEL}")
     vectors = embed_texts(embed_input)
 
     # ── ⑤-a Chroma 적재 ──

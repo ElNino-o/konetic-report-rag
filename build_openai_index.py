@@ -1,10 +1,10 @@
 """
-OpenAI 임베딩 인덱스 빌더 (chunks.jsonl 재사용 — 재청킹 없음).
+인덱스 재빌더 (chunks.jsonl 재사용 — 재청킹 없이 임베딩만 다시).
 
 실행:  python build_openai_index.py
   - index_pipeline.py 가 만든 storage/chunks.jsonl 을 그대로 사용
-  - reference 제외 후 OpenAI 임베딩으로 reports_openai 컬렉션 + bm25_openai.pkl 생성
-  - bge-m3 인덱스와 공존 → compare_embeddings.py / UI 토글로 비교
+  - reference 제외 후 OpenAI 임베딩으로 컬렉션 + BM25 + npz 재생성
+  - 청킹은 그대로 두고 임베딩만 갱신할 때 유용 (index_pipeline 은 청킹+임베딩 모두 수행)
 """
 from __future__ import annotations
 
@@ -16,8 +16,6 @@ import config
 import structure_chunker as sc
 from common import embed_texts, get_chroma_collection, save_bm25, simple_tokenize
 from index_pipeline import META_FIELDS
-
-config.EMBED_BACKEND = "openai"   # 이 스크립트는 항상 openai 백엔드로 적재
 
 
 def main():
