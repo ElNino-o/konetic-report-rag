@@ -163,3 +163,24 @@ OPENAI_RERANK_MODEL = os.getenv("OPENAI_RERANK_MODEL") or OPENAI_MODEL
 
 LLM_MAX_NEW_TOKENS = 1024
 LLM_TEMPERATURE = 0.2
+
+# ── 로깅 레벨 (디버깅: LOG_LEVEL=DEBUG) ──────────────────
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+
+
+def summary() -> dict:
+    """현재 해석된 설정 요약 (로깅·디버깅용)."""
+    return {
+        "EMBED_BACKEND": EMBED_BACKEND,
+        "RERANK_BACKEND": RERANK_BACKEND,
+        "VECTOR_BACKEND": VECTOR_BACKEND,
+        "collection": collection_name(),
+        "bm25_file": bm25_path().name,
+        "npz_file": npz_path().name,
+        "npz_exists": npz_path().exists(),
+        "chunks_exists": CHUNK_DUMP.exists(),
+        "OPENAI_MODEL": OPENAI_MODEL,
+        "OPENAI_EMBED_MODEL": OPENAI_EMBED_MODEL,
+        "CHROMA_DIR": str(CHROMA_DIR),
+        "api_key_set": bool(OPENAI_API_KEY),
+    }

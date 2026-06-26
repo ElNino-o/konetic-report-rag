@@ -29,6 +29,7 @@ from common import (
 )
 
 log = metering.get_logger()
+log.info("[qa] 모듈 로드 · 설정요약: %s", config.summary())
 
 # 마지막 OpenAI 호출의 토큰 사용량(모니터링용). (prompt, completion, model)
 LAST_RERANK_USAGE: tuple | None = None

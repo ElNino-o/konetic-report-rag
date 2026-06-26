@@ -23,6 +23,9 @@ import re
 import pdfplumber
 
 import config
+from metering import get_logger
+
+log = get_logger()
 
 # ── 정리: 널바이트·제어문자 제거 ────────────────────────
 _CTRL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
@@ -220,6 +223,9 @@ def parse_and_chunk(pdf_path: str, meta: dict, doc_id: str) -> list[dict]:
                 new_chunk(text, pno, "table",
                           table_title=ttitle, caption_source=csource)
 
+    from collections import Counter
+    log.debug("[chunk] %s → %d청크 %s", doc_id, len(chunks),
+              dict(Counter(c["chunk_type"] for c in chunks)))
     return chunks
 
 

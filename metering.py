@@ -16,14 +16,15 @@ _CONFIGURED = False
 
 
 def get_logger() -> logging.Logger:
-    """'rag' 로거를 1회 구성해 반환 (단계별 로그용)."""
+    """'rag' 로거를 1회 구성해 반환 (단계별 로그용). LOG_LEVEL 로 상세도 조절."""
     global _CONFIGURED
     log = logging.getLogger("rag")
     if not _CONFIGURED:
         h = logging.StreamHandler(sys.stderr)
-        h.setFormatter(logging.Formatter("%(asctime)s [rag] %(message)s", "%H:%M:%S"))
+        h.setFormatter(logging.Formatter(
+            "%(asctime)s [rag:%(levelname)s] %(message)s", "%H:%M:%S"))
         log.addHandler(h)
-        log.setLevel(logging.INFO)
+        log.setLevel(getattr(logging, str(config.LOG_LEVEL).upper(), logging.INFO))
         log.propagate = False
         _CONFIGURED = True
     return log

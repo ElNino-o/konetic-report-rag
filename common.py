@@ -12,6 +12,9 @@ import pickle
 from functools import lru_cache
 
 import config
+from metering import get_logger
+
+log = get_logger()
 
 # chromadb 는 무겁고 memory 백엔드(클라우드)에선 불필요 → 지연 import 한다.
 
@@ -73,9 +76,10 @@ def _embed_bge_reset(texts):
 
 def embed_texts(texts: list[str]) -> list[list[float]]:
     """문자열 리스트 → dense 벡터 리스트. 백엔드(config.EMBED_BACKEND)별 분기."""
-    if config.EMBED_BACKEND == "openai":
-        return _embed_openai(texts)
-    return _embed_bge_reset(texts)
+    vecs = _embed_openai(texts) if config.EMBED_BACKEND == "openai" else _embed_bge_reset(texts)
+    log.debug("[embed] backend=%s n=%d dim=%d tokens=%d",
+              config.EMBED_BACKEND, len(vecs), len(vecs[0]) if vecs else 0, LAST_EMBED_TOKENS)
+    return vecs
 
 
 # ── ③ BGE-reranker (선택, 싱글톤) ───────────────────────
@@ -95,21 +99,28 @@ def get_chroma_client():
         # C: 로컬에서 띄운 Chroma 서버에 HTTP 접속(터널 노출 시 사용)
         headers = ({"Authorization": f"Bearer {config.CHROMA_HTTP_TOKEN}"}
                    if config.CHROMA_HTTP_TOKEN else None)
+        log.info("[chroma] HttpClient host=%s port=%s ssl=%s",
+                 config.CHROMA_HTTP_HOST, config.CHROMA_HTTP_PORT, config.CHROMA_HTTP_SSL)
         return chromadb.HttpClient(
             host=config.CHROMA_HTTP_HOST, port=config.CHROMA_HTTP_PORT,
             ssl=config.CHROMA_HTTP_SSL, headers=headers,
         )
     config.CHROMA_DIR.mkdir(parents=True, exist_ok=True)
+    log.info("[chroma] PersistentClient path=%s", config.CHROMA_DIR)
     return chromadb.PersistentClient(path=str(config.CHROMA_DIR))
 
 
 @lru_cache(maxsize=4)
 def get_chroma_collection(name: str | None = None):
     """Chroma 컬렉션 반환/생성 (로컬 영속 또는 원격 HTTP)."""
-    return get_chroma_client().get_or_create_collection(
-        name=name or config.collection_name(),
-        metadata={"hnsw:space": "cosine"},
-    )
+    name = name or config.collection_name()
+    col = get_chroma_client().get_or_create_collection(
+        name=name, metadata={"hnsw:space": "cosine"})
+    try:
+        log.info("[chroma] 컬렉션 '%s' 로드: %d 벡터", name, col.count())
+    except Exception as e:
+        log.warning("[chroma] 컬렉션 '%s' count 실패: %s", name, e)
+    return col
 
 
 # ── ⑤ BM25 인덱스 영속화 (피클, 백엔드별 경로) ──────────
@@ -124,9 +135,12 @@ def save_bm25(bm25_obj, tokenized_corpus, chunk_ids):
 def load_bm25():
     p = config.bm25_path()
     if not p.exists():
+        log.warning("[bm25] 파일 없음: %s", p)
         return None
     with open(p, "rb") as f:
-        return pickle.load(f)
+        store = pickle.load(f)
+    log.debug("[bm25] 로드: %s (%d ids)", p.name, len(store.get("ids", [])))
+    return store
 
 
 # ── 간단 토크나이저 (BM25용, 한국어/영문 혼용) ──────────

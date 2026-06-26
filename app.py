@@ -55,6 +55,9 @@ if not LOCAL_BGE:
     if config.RERANK_BACKEND == "local":
         config.RERANK_BACKEND = "openai"
 
+from metering import get_logger  # 서버 로깅(storage/streamlit.log)
+get_logger().info("[app] 시작 · LOCAL_BGE=%s · 설정요약: %s", LOCAL_BGE, config.summary())
+
 
 # ── 인덱싱 산출물(청크 백업) 자동 로드 ───────────────────
 @st.cache_data
@@ -160,7 +163,18 @@ with st.sidebar:
     st.caption(f"질의 {sess['queries']}건 · 누적 토큰 {sess['tokens']:,}")
 
     if st.button("🔄 인덱스 다시 불러오기"):
+        # 청크 + 벡터 저장소 캐시를 모두 비운다(다른 프로세스가 인덱스를 갱신한
+        # 경우 stale 한 Chroma/npz 핸들을 버리고 새로 로드).
         load_chunks.clear()
+        try:
+            import common
+            import vector_store
+            common.get_chroma_collection.cache_clear()
+            common.get_chroma_client.cache_clear()
+            vector_store._load_memory.cache_clear()
+            get_logger().info("[app] 인덱스 캐시 초기화(재로딩)")
+        except Exception as e:
+            get_logger().warning("[app] 캐시 초기화 실패: %s", e)
         st.rerun()
 
 st.title("🌏 코네틱 국가별보고서, 규제보고서 Q&A")
@@ -192,6 +206,10 @@ if mode == "질의응답":
 
         if run and query.strip():
             qa = _load_qa()
+            get_logger().info(
+                "[app] 질의제출 q=%r | embed=%s vector=%s(%s) rerank=%s",
+                query, config.EMBED_BACKEND, config.VECTOR_BACKEND,
+                config.collection_name(), config.RERANK_BACKEND)
             with st.spinner("② 검색 → ③ 리랭킹 → ④ 답변 생성..."):
                 result = qa.answer(query)          # 전체 문서 대상(필터 없음)
 

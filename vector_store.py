@@ -18,12 +18,16 @@ from functools import lru_cache
 import numpy as np
 
 import config
+from metering import get_logger
+
+log = get_logger()
 
 
 # ── memory(A) 백엔드: npz + chunks.jsonl 로드 ───────────
 @lru_cache(maxsize=4)
 def _load_memory():
     npz = config.npz_path()
+    log.info("[memory] npz 로드 시도: %s (exists=%s)", npz, npz.exists())
     if not npz.exists():
         raise FileNotFoundError(
             f"{npz} 없음 — export_npz.py 또는 build_*_index.py 로 생성하세요."
@@ -31,6 +35,7 @@ def _load_memory():
     data = np.load(npz, allow_pickle=True)
     ids = list(data["ids"])
     mat = data["vectors"].astype(np.float32)
+    log.info("[memory] 로드 완료: %d 벡터 · %d차원", len(ids), mat.shape[1] if mat.ndim == 2 else -1)
     # 코사인용 정규화(이미 정규화돼 있어도 안전)
     norm = np.linalg.norm(mat, axis=1, keepdims=True)
     mat = mat / np.clip(norm, 1e-12, None)
@@ -78,6 +83,8 @@ def _search_chroma(qv, top_k, where):
     for cid, doc, meta, dist in zip(res["ids"][0], res["documents"][0],
                                     res["metadatas"][0], res["distances"][0]):
         out.append({"id": cid, "text": doc, "vec_sim": 1.0 - dist, **meta})
+    log.info("[search:chroma] '%s' q_dim=%d top_k=%d → %d hits",
+             config.collection_name(), len(qv), top_k, len(out))
     return out
 
 
@@ -88,8 +95,12 @@ _META_KEYS = ("doc_id", "page", "country", "year", "field", "doc_source",
 
 def search(query_vec, top_k: int, where: dict | None = None) -> list[dict]:
     """벡터 검색 — VECTOR_BACKEND 에 따라 디스패치. vec_sim(코사인) 포함."""
+    log.debug("[search] backend=%s embed=%s where=%s",
+              config.VECTOR_BACKEND, config.EMBED_BACKEND, where)
     if config.VECTOR_BACKEND == "memory":
-        return _search_memory(query_vec, top_k, where)
+        hits = _search_memory(query_vec, top_k, where)
+        log.info("[search:memory] '%s' → %d hits", config.npz_path().name, len(hits))
+        return hits
     return _search_chroma(query_vec, top_k, where)   # chroma | remote 동일 인터페이스
 
 
