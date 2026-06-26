@@ -1,0 +1,12 @@
+# ── Streamlit Cloud 배포용 (슬림) ──
+# 런타임은 OpenAI API + 인메모리(numpy) 검색만 사용 → torch/sentence-transformers 불필요.
+# (오프라인 인덱싱은 로컬에서 requirements.txt 전체로 수행)
+
+streamlit>=1.36
+openai>=1.40            # 임베딩(질의) · 리랭크 · LLM
+python-dotenv>=1.0      # 로컬 .env (클라우드는 st.secrets)
+numpy>=1.26             # 인메모리 코사인 검색 (VECTOR_BACKEND=memory)
+rank-bm25>=0.2.2        # BM25 키워드 검색(피클 로드)
+
+# (선택) VECTOR_BACKEND=remote 로 로컬 Chroma 서버에 붙을 때만 필요:
+# chromadb>=0.5

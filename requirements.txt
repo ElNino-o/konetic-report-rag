@@ -1,0 +1,27 @@
+# ── 공통 ─────────────────────────────────────────────
+pandas>=2.0            # ① 엑셀 메타데이터 읽기
+openpyxl>=3.1          # ① .xlsx 파서 (pandas 백엔드)
+
+# ── ② 문서 파싱 (텍스트 추출 · OCR) ──────────────────
+PyMuPDF>=1.24          # 본문 텍스트 추출 (fitz)
+pdfplumber>=0.11       # 표/레이아웃 보조 추출
+pytesseract>=0.3.10    # OCR (스캔 PDF) — 별도로 Tesseract 엔진 설치 필요
+Pillow>=10.0           # OCR 입력 이미지 변환
+
+# ── ④ 임베딩 · ③ 리랭킹 ──────────────────────────────
+sentence-transformers>=3.0   # BGE-M3 임베딩 + BGE-reranker(CrossEncoder)
+torch>=2.1                   # CPU 휠 권장: pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+# ── ⑤ 벡터DB · 키워드 검색 ───────────────────────────
+chromadb>=0.5          # 벡터 저장/검색 (드라이브 영속화)
+rank-bm25>=0.2.2       # BM25 키워드 검색
+
+# ── 런타임 ④ LLM 답변 생성 ───────────────────────────
+transformers>=4.44     # 소형 한국어 LLM 로딩
+accelerate>=0.33
+bitsandbytes>=0.43     # 4bit 양자화 (GPU/Linux 권장) — 없으면 OpenAI 호환 API로 대체
+openai>=1.40           # OpenAI API 호출
+python-dotenv>=1.0     # .env 비공개 설정 로드
+
+# ── 대국민 화면 UI ───────────────────────────────────
+streamlit>=1.36
