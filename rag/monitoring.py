@@ -43,3 +43,36 @@ def embed_cost(model: str, tokens: int) -> float:
 
 def usd(x: float) -> str:
     return f"${x:,.6f}"
+
+
+# ── 인덱싱 비용 누적기 (오프라인 1회 인덱싱용) ───────────
+class IndexCost:
+    """인덱싱 단계의 임베딩·LLM(맥락생성) 토큰/비용을 누적해 합산 로깅한다."""
+
+    def __init__(self):
+        self.embed_tokens = 0
+        self.chat_prompt = 0
+        self.chat_completion = 0
+        self.chat_calls = 0
+
+    def add_embed(self, tokens: int):
+        self.embed_tokens += int(tokens or 0)
+
+    def add_chat(self, prompt: int, completion: int):
+        self.chat_prompt += int(prompt or 0)
+        self.chat_completion += int(completion or 0)
+        self.chat_calls += 1
+
+    @property
+    def usd(self) -> float:
+        return (embed_cost(config.OPENAI_EMBED_MODEL, self.embed_tokens)
+                + chat_cost(config.OPENAI_MODEL, self.chat_prompt, self.chat_completion))
+
+    def log(self, log_, label: str = "인덱싱 누적 비용"):
+        log_.info("💰 %s: 임베딩 %s토큰 · 맥락LLM %d호출(%s+%s) · 추정 %s",
+                  label, f"{self.embed_tokens:,}", self.chat_calls,
+                  f"{self.chat_prompt:,}", f"{self.chat_completion:,}", usd(self.usd))
+
+
+# 인덱싱 실행 동안 공유되는 단일 누적기
+INDEX_COST = IndexCost()

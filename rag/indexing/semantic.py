@@ -16,7 +16,8 @@ from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 
 from rag import config
-from rag.monitoring import get_logger
+from rag import services
+from rag.monitoring import INDEX_COST, get_logger
 from rag.services import _openai_client, embed_texts, resolve_key
 
 log = get_logger()
@@ -54,6 +55,7 @@ def semantic_split(text: str, api_key: str | None = None,
     if len(sents) <= 2:
         return _hard_split(text, max_chars)
     vecs = np.asarray(embed_texts(sents, api_key=api_key), dtype=np.float32)
+    INDEX_COST.add_embed(services.LAST_EMBED_TOKENS)   # 문장 임베딩 비용 누적
     vecs /= np.clip(np.linalg.norm(vecs, axis=1, keepdims=True), 1e-12, None)
     dist = 1.0 - np.sum(vecs[:-1] * vecs[1:], axis=1)   # 인접 문장 코사인 거리
     thr = float(np.percentile(dist, pct))
@@ -109,6 +111,9 @@ def _ctx_one(c: dict, api_key: str) -> str:
                       {"role": "user", "content": user}],
             max_completion_tokens=80,
         )
+        u = getattr(r, "usage", None)
+        if u:
+            INDEX_COST.add_chat(u.prompt_tokens, u.completion_tokens)   # 맥락생성 비용 누적
         return (r.choices[0].message.content or "").strip().replace("\n", " ")
     except Exception as e:
         log.warning("[contextualize] %s", e)
@@ -128,4 +133,5 @@ def contextualize(chunks: list[dict], api_key: str | None = None, workers=12):
 
     with ThreadPoolExecutor(max_workers=workers) as ex:
         list(ex.map(work, chunks))
-    log.info("맥락 생성 완료: %d청크", len(chunks))
+    n_empty = sum(1 for c in chunks if not c.get("context"))
+    log.info("맥락 생성 완료: %d청크 (실패/빈맥락 %d)", len(chunks), n_empty)

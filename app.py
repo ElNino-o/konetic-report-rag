@@ -87,7 +87,8 @@ def render_answer(result, sess):
         st.json({"임베딩 토큰": ug["embed_tokens"], "리랭크 토큰": ug["rerank_tokens"],
                  "LLM 토큰(p/c)": f"{ug['llm_prompt_tokens']}/{ug['llm_completion_tokens']}",
                  "비용(USD)": {k: round(v, 6) for k, v in ug["cost_breakdown"].items()}})
-    st.subheader("4. 답변")
+    render_session_cost()   # 사이드바 누적값을 이번 질의 반영해 즉시 갱신
+    st.subheader("💬 답변")
     st.markdown(result["answer"])
     st.subheader("📎 근거 (출처 · 페이지)")
     for i, s in enumerate(result["sources"], 1):
@@ -155,22 +156,35 @@ with st.sidebar:
                   index=1 if config.RERANK_BACKEND == "openai" else 0)
 
     st.divider()
-    st.header("📊 상태")
+    st.subheader("📊 상태")
     if mode == "KEITI 보고서":
-        st.metric("문서 수", f"{len(corpus_docs)} 건")
-        st.metric("청크 수", f"{corpus_n} 개")
-        st.caption(f"벡터 저장소: **{config.VECTOR_BACKEND}** · `{config.collection_name()}`")
+        n_docs, n_chunks = len(corpus_docs), corpus_n
     else:
         up = st.session_state.get("upload_index", {"chunks": [], "mat": None})
-        st.metric("업로드 문서", f"{len({c['source_file'] for c in up['chunks']})} 건")
-        st.metric("청크 수", f"{len(up['chunks'])} 개")
-    st.caption(f"임베딩 {config.OPENAI_EMBED_MODEL} · LLM {config.OPENAI_MODEL}")
+        n_docs = len({c["source_file"] for c in up["chunks"]})
+        n_chunks = len(up["chunks"])
+    sc1, sc2 = st.columns(2)
+    sc1.metric("문서", f"{n_docs}")
+    sc2.metric("청크", f"{n_chunks}")
+    st.caption(f"벡터 저장소 `{config.VECTOR_BACKEND}` · 임베딩 `{config.OPENAI_EMBED_MODEL}`")
+    st.caption(f"답변 LLM `{config.OPENAI_MODEL}`")
 
     sess = st.session_state.setdefault("usage_total", {"cost": 0.0, "queries": 0, "tokens": 0})
     st.divider()
-    st.header("💰 세션 비용")
-    st.metric("누적 추정 비용", f"${sess['cost']:.4f}")
-    st.caption(f"질의 {sess['queries']}건 · 누적 토큰 {sess['tokens']:,}")
+    st.subheader("💰 세션 누적")
+    _cost_ph = st.empty()   # 답변 직후 즉시 갱신(한 박자 지연 방지)
+
+
+def render_session_cost():
+    """사이드바 세션 비용 placeholder 를 현재 누적값으로 다시 그린다."""
+    with _cost_ph.container():
+        cc1, cc2 = st.columns(2)
+        cc1.metric("추정 비용", f"${sess['cost']:.4f}")
+        cc2.metric("질의 수", f"{sess['queries']}")
+        st.caption(f"누적 토큰 {sess['tokens']:,}")
+
+
+render_session_cost()
 
 st.title("🌏 코네틱 국가별보고서, 규제보고서 Q&A")
 
@@ -181,7 +195,7 @@ if mode == "KEITI 보고서":
     st.caption(f"보고서 {len(corpus_docs)}건 · 임베딩/리랭크/LLM 모두 OpenAI")
     left, right = st.columns([1, 1], gap="large")
     with left:
-        st.subheader("1. 질문")
+        st.subheader("✍️ 질문")
         query = st.text_area("자연어 질문", height=100,
                              placeholder="예) 폴란드 이차전지 시장 동향을 알려줘")
         run = st.button("🔎 검색 · 답변", type="primary", use_container_width=True,
@@ -192,7 +206,7 @@ if mode == "KEITI 보고서":
             qa = load_qa()
             get_logger().info("[app] KEITI 질의 q=%r rerank=%s", query, rr)
             try:
-                with st.spinner("2. 검색 → 3. 리랭킹 → 4. 답변..."):
+                with st.spinner("검색 → 리랭킹 → 답변 생성 중..."):
                     result = qa.answer(query, rerank_backend=rr, api_key=key_in.strip() or None)
             except Exception as e:
                 get_logger().exception("[app] answer 실패")
@@ -225,7 +239,7 @@ else:
     up = st.session_state.get("upload_index", {"chunks": [], "mat": None})
     left, right = st.columns([1, 1], gap="large")
     with left:
-        st.subheader("1. 질문")
+        st.subheader("✍️ 질문")
         uq = st.text_area("자연어 질문", height=100, key="upq",
                           placeholder="업로드한 문서에 대해 질문하세요")
         urun = st.button("🔎 검색 · 답변", type="primary", use_container_width=True,
@@ -237,7 +251,7 @@ else:
             qa = load_qa()
             get_logger().info("[app] 업로드 질의 q=%r rerank=%s", uq, rr)
             try:
-                with st.spinner("2. 검색 → 3. 리랭킹 → 4. 답변..."):
+                with st.spinner("검색 → 리랭킹 → 답변 생성 중..."):
                     hits = upload_pipeline.search(uq, up, key_in.strip() or config.OPENAI_API_KEY,
                                                   top_k=config.TOP_K_RETRIEVE)
                     result = qa.answer(uq, candidates=hits, rerank_backend=rr,

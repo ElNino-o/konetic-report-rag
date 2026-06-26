@@ -21,8 +21,12 @@ import pandas as pd
 from rank_bm25 import BM25Okapi
 
 from rag import config
+from rag import services
 from rag.indexing import structure_chunker as sc
+from rag.monitoring import INDEX_COST, get_logger
 from rag.services import embed_texts, get_chroma_collection, save_bm25, simple_tokenize
+
+log = get_logger()
 
 
 # ════════════════════════════════════════════════════════
@@ -118,6 +122,7 @@ def build_index(all_chunks: list[dict]):
     # ── 4. 임베딩 생성 (OpenAI) ──
     print(f"4. 임베딩 생성: {len(embed_input)} 청크(reference 제외) → OpenAI {config.OPENAI_EMBED_MODEL}")
     vectors = embed_texts(embed_input)
+    INDEX_COST.add_embed(services.LAST_EMBED_TOKENS)   # 본문 임베딩 비용 누적
 
     # ── 5.-a Chroma 적재 ──
     print("5. Chroma 적재 중...")
@@ -187,7 +192,20 @@ def main():
         deduped.append(c)
     if len(deduped) < len(all_chunks):
         print(f"   중복 제거: {len(all_chunks)} → {len(deduped)} 청크")
+
+    # ── A. 의미 분할: 긴 본문을 문장 임베딩 의미거리로 재분할 ──
+    from rag.indexing import semantic
+    print("A. 의미 분할(긴 본문) 처리 중...")
+    deduped = semantic.apply_semantic_split(deduped)
+
+    # ── C. Contextual Retrieval: 검색 대상 청크에 LLM 1문장 맥락 부여 ──
+    #    reference(출처/참고문헌)는 인덱스 제외 대상이라 맥락 생성도 건너뛴다.
+    retr = [c for c in deduped if c["chunk_type"] != "reference"]
+    print(f"C. 맥락 생성(Contextual Retrieval): {len(retr)} 청크 → LLM {config.OPENAI_MODEL}")
+    semantic.contextualize(retr)
+
     build_index(deduped)
+    INDEX_COST.log(log, "인덱싱 총 추정 비용")
 
 
 if __name__ == "__main__":

@@ -14,17 +14,19 @@
 - [x] 두 모드: KEITI 고정 코퍼스 / 내 문서 업로드(세션 임시)
 - [x] 청킹 아티팩트 수정(쪽번호/표 빈셀/중복/파편) + 재인덱싱
 - [x] Streamlit Cloud 배포(공용 키, memory)
+- [x] **A+C 맥락 단위 청킹**: 의미 분할(semantic_split) + Contextual Retrieval(LLM 1문장 맥락)
+      배선·재인덱싱 완료. 길이상한 절단 제거 → 섹션 통째 유지 후 의미 경계 분할,
+      `context_text`가 LLM 맥락(`c['context']`) 우선 사용
+- [x] 인덱싱 API 비용 합산 로깅(`monitoring.INDEX_COST`) + 빈맥락 청크 카운트
+- [x] UI 정리: 내부 단계번호(1.질문/4.답변) 제거, 사이드바 상태·세션비용 가독성/즉시갱신
 
-## 진행 중 / 다음 (nextsession.md 참조)
-- [ ] **A+C 맥락 단위 청킹**: 의미 분할(semantic_split) + Contextual Retrieval(LLM 1문장 맥락)
-      → `rag/indexing/semantic.py` 작성됨, 배선·재인덱싱만 남음
+## 진행 중 / 다음
 
 ## 백로그 (우선순위 낮음)
 - [ ] 크로스-페이지 섹션 병합(현재 페이지 경계에서 본문이 끊김)
 - [ ] 표 추출 품질 향상(행라벨 열 누락 케이스), table_title↔table 매칭 정확화
 - [ ] 부모-자식(small-to-big) 검색 옵션
 - [ ] 한국어 BM25 토크나이저 고도화(형태소 기반)
-- [ ] 인덱싱 API 비용 합산 로깅 + 실패 청크 리포트
 - [ ] gpt-5.4-nano 실단가 반영(config.PRICES) / OpenAI 사용 한도 설정
 - [ ] requirements.txt 를 `uv export` 로 자동 동기화
 - [ ] 평가셋(질문-정답)으로 검색/답변 품질 정량 측정(회귀 방지)

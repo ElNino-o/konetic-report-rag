@@ -208,9 +208,8 @@ def parse_and_chunk(pdf_path: str, meta: dict, doc_id: str) -> list[dict]:
                 if RE_FOOTNOTE.match(ln) and len(ln) > 25:
                     continue  # 각주는 별도 부착
                 buf.append(ln)
-                # 길이 상한(과대 청크 방지): 본문이 매우 길면 분할
-                if sum(len(x) for x in buf) > 1100:
-                    flush()
+                # 길이 상한 절단 없음: 섹션을 통째로 유지하고,
+                # 과대 본문은 후처리(semantic.apply_semantic_split)가 의미 경계로 분할한다.
             flush()
 
             # ── 표 청킹 ──
@@ -237,11 +236,17 @@ def parse_and_chunk(pdf_path: str, meta: dict, doc_id: str) -> list[dict]:
 
 
 # ── 임베딩/BM25 용 컨텍스트 헤더 텍스트 ──────────────────
-def context_text(c: dict) -> str:
-    """짧은 청크에 맥락을 부여하기 위해 제목·구조 헤더를 본문 앞에 결합."""
+def _structural_header(c: dict) -> str:
+    """제목·국가·구조 경로(챕터>섹션>하위)·표 제목을 결합한 구조 헤더."""
     parts = [p for p in [c.get("country"), c.get("title")] if p]
     path = " > ".join(p for p in [c.get("chapter"), c.get("section"), c.get("subsection")] if p)
     header = " | ".join([" ".join(parts), path]).strip(" |")
     if c.get("table_title"):
         header = (header + " | " + c["table_title"]).strip(" |")
+    return header
+
+
+def context_text(c: dict) -> str:
+    """임베딩/BM25 입력. LLM 맥락(context)이 있으면 그것을, 없으면 구조 헤더를 본문 앞에 결합."""
+    header = (c.get("context") or "").strip() or _structural_header(c)
     return f"{header}\n{c['text']}" if header else c["text"]
