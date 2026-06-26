@@ -33,6 +33,25 @@ TYPE_ICON = {"summary": "📌", "body": "📄", "table": "📊",
              "interview": "🎤", "reference": "🔗"}
 
 
+def _password_gate():
+    """공개 배포에서 공용 키 남용 방지. APP_PASSWORD 가 설정된 경우에만 동작."""
+    pw = os.getenv("APP_PASSWORD", "")
+    if not pw or st.session_state.get("authed"):
+        return
+    st.title("🔒 코네틱 보고서 Q&A")
+    entered = st.text_input("접속 비밀번호", type="password")
+    if st.button("입장"):
+        if entered == pw:
+            st.session_state["authed"] = True
+            st.rerun()
+        else:
+            st.error("비밀번호가 올바르지 않습니다.")
+    st.stop()
+
+
+_password_gate()
+
+
 # ── 고정 코퍼스(청크 백업) 자동 로드 ─────────────────────
 @st.cache_data
 def load_corpus():
@@ -114,14 +133,20 @@ def load_qa():
 corpus_by_doc, corpus_docs, corpus_n = load_corpus()
 
 # ════════════════════════════════════════════════════════
-# 사이드바: BYOK 키 · 모드 · 리랭킹 · 상태
+# 사이드바: 키 · 모드 · 리랭킹 · 상태
 # ════════════════════════════════════════════════════════
 with st.sidebar:
-    st.header("🔑 OpenAI 키 (BYOK)")
-    key_in = st.text_input("OpenAI API 키", type="password",
-                           placeholder="sk-...", help="세션에만 보관 · 저장/로깅 안 함")
-    eff_key = key_in.strip() or config.OPENAI_API_KEY
-    st.caption("키 보유 ✅" if eff_key else "키를 입력해야 질의할 수 있습니다")
+    # 공용 키(secrets/.env)가 있으면 그걸 쓰고 입력칸 숨김(PoC). 없으면 BYOK 입력.
+    if config.OPENAI_API_KEY:
+        key_in = ""
+        eff_key = config.OPENAI_API_KEY
+        st.caption("🔑 공용 OpenAI 키 사용 중")
+    else:
+        st.header("🔑 OpenAI 키 (BYOK)")
+        key_in = st.text_input("OpenAI API 키", type="password",
+                               placeholder="sk-...", help="세션에만 보관 · 저장/로깅 안 함")
+        eff_key = key_in.strip()
+        st.caption("키 보유 ✅" if eff_key else "키를 입력해야 질의할 수 있습니다")
 
     st.divider()
     mode = st.radio("모드", ["KEITI 보고서", "내 문서 업로드"])
