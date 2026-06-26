@@ -83,7 +83,25 @@ rag/                    런타임 패키지
 
 ---
 
-## 배포 · 모니터링
+## 배포 (Streamlit Cloud)
 
-- 배포(인메모리 A안 / 원격 Chroma C안): **[DEPLOY.md](DEPLOY.md)**.
-- 단계별 시간·토큰·비용은 서버 로그(`[rag] …`)와 UI 모니터에 표시. 가격표는 `config.PRICES`(추정치 → 실단가로 조정).
+런타임은 OpenAI API + 인메모리(numpy) 검색만 쓰므로 무료티어에 그대로 올라간다.
+
+1. 로컬에서 인덱싱(1회): `uv run python -m rag.indexing.index_pipeline`
+   → `storage/{chunks.jsonl, reports_openai.npz, bm25_openai.pkl}` 생성(커밋 대상).
+2. GitHub 푸시 → Streamlit Cloud → New app → **Main file: `app.py`** (Python 3.12 권장).
+3. **Secrets** (앱 설정):
+   ```toml
+   OPENAI_API_KEY = "sk-공용키"     # 공용 키면 사이드바 입력칸 자동 숨김
+   APP_PASSWORD   = "비밀번호"       # 공개 URL 남용 방지(권장)
+   VECTOR_BACKEND = "memory"
+   RERANK_BACKEND = "openai"
+   OPENAI_MODEL = "gpt-5.4-nano"
+   OPENAI_EMBED_MODEL = "text-embedding-3-large"
+   ```
+   - `OPENAI_API_KEY`를 빼면 BYOK(방문자가 각자 키 입력) 모드가 된다.
+   - `chromadb` 미설치(슬림)면 `VECTOR_BACKEND`는 자동으로 `memory`로 폴백.
+   - 대안: 로컬 Chroma 서버 + 터널(`VECTOR_BACKEND=remote`, `CHROMA_HTTP_*`)도 지원.
+
+> 모니터링: 단계별 시간·토큰·비용은 서버 로그(`[rag] …`)와 UI에 표시. 가격표 `config.PRICES`는 추정치(실단가로 조정).
+> 로드맵·다음 작업: [docs/plan.md](docs/plan.md) · [docs/nextsession.md](docs/nextsession.md).

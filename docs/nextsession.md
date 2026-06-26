@@ -42,3 +42,25 @@
 - `.gitignore`/정규식: **인라인 주석 금지**, `\s{2,}`는 개행도 매칭(라인 병합 사고) → 인라인 치환 금지.
 - 빈 `OPENAI_BASE_URL` 환경변수는 OpenAI 클라이언트 오류 → config 에서 pop 처리됨(유지).
 - 재인덱싱은 인덱싱 extra 필요: `uv sync --extra indexing` (pdfplumber/chromadb/kiwipiepy).
+
+---
+
+## 다음 세션 시작 프롬프트 (그대로 붙여넣기)
+
+```
+rag_prototype 프로젝트(코네틱 보고서 RAG, OpenAI 전용, GitHub: ElNino-o/konetic-report-rag)
+이어서 작업한다. docs/nextsession.md 와 docs/plan.md 를 먼저 읽어 현재 상태를 파악해라.
+
+목표: 맥락 단위 청킹 A+C 마무리.
+이미 rag/indexing/semantic.py 에 semantic_split / apply_semantic_split / contextualize 가
+작성돼 있고 '미배선' 상태다. nextsession.md 의 TODO 1~5 를 그대로 수행해라:
+ 1) structure_chunker.py 의 1100자 길이상한 flush 제거 + context_text 가 c['context'] 우선 사용
+ 2) index_pipeline.main 에 apply_semantic_split → contextualize → build_index 배선
+ 3) uv run python -m rag.indexing.index_pipeline 로 1회 재인덱싱(비용~$1-3, ~10분)
+ 4) 새 인덱스 검증(청크 길이 분포, context 채움, qa.answer, Playwright 1회)
+ 5) chunks.jsonl·reports_openai.npz·bm25_openai.pkl + 코드 커밋·푸시
+
+주의: .gitignore/정규식 인라인 주석 금지, \s{2,} 개행 매칭 사고 주의(둘 다 과거 사고).
+인덱싱 API 비용 합산 로깅도 추가해라(monitoring.chat_cost/embed_cost).
+작업 전 uv sync --extra indexing 로 의존성(kiwipiepy 등) 설치 확인.
+```

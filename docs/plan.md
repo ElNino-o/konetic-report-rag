@@ -1,7 +1,7 @@
 # 프로젝트 로드맵 (PLAN)
 
 코네틱 보고서 RAG — OpenAI 전용, Streamlit Cloud 배포(PoC).
-상세 아키텍처는 [README.md](README.md), 배포는 [DEPLOY.md](DEPLOY.md), 다음 작업은 [nextsession.md](nextsession.md).
+상세 아키텍처·배포는 [../README.md](../README.md), 다음 작업은 [nextsession.md](nextsession.md).
 
 ## 완료
 - [x] 구조 인식 청킹(KEITI 보고서) — 챕터/섹션/표/인터뷰/각주
