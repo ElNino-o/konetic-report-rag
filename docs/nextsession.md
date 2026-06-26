@@ -13,13 +13,22 @@
 - **UI 정리**: 내부 단계번호(1.질문/4.답변) 제거 → `✍️ 질문`/`💬 답변`, 사이드바 상태 2열 + 세션비용
   placeholder 즉시 갱신(한 박자 지연 해소).
 
+## 빈맥락 원인 규명 + 해결 (완료)
+- **실제 원인**: 추론토큰 소진(빈 응답)이 아니라 **OpenAI 429 레이트리밋**이었음.
+  `reindex.log` 분석 결과 빈맥락 262건 = 429 (RPM 500 초과 135건 + TPM 200k 초과 127건).
+  12워커가 한도를 지속 초과 → 클라이언트 기본 재시도(2회)로도 회복 실패.
+- **조치**(`semantic._ctx_one`/`contextualize`, `config`):
+  - `max_completion_tokens` 80→**512**(추론+출력 합산 상한 넉넉히, `config.CTX_MAX_TOKENS`).
+  - **추론강도 `reasoning_effort=low`**(단순 1문장 작업) — 미지원 모델이면 자동 폴백.
+  - **429 점증 백오프 재시도**(`CTX_MAX_RETRIES=6`) + **동시성 12→6**(`CTX_WORKERS`)로 한도 회피.
+  - **2차 보충 패스**: 1차 후 남은 빈맥락만 동시성 2로 재시도 → 누락 0 지향.
+- 참고: `max_completion_tokens`는 Chat Completions API에서 gpt-5 계열(추론형)의 공식 파라미터가 맞음
+  (Responses API라면 `max_output_tokens`). 추론토큰+출력토큰 합산 상한이라 작으면 빈 응답 위험.
+
 ## 다음 세션 TODO (품질 튜닝 — 선택)
-1. **빈맥락 8.2%(262건) 개선**: `semantic._ctx_one`의 `max_completion_tokens=80`이 gpt-5.4-nano
-   (추론형) 추론토큰에 소진되어 빈 응답 추정. 토큰을 ~200으로 올리거나, 빈 응답만 재시도(1회).
-   현재도 빈맥락은 `_structural_header`로 폴백되어 검색은 정상.
-2. **표(table)·요약(summary)도 의미분할 대상에 포함 검토**: 현재 `apply_semantic_split`은 `body`만 분할
+1. **표(table)·요약(summary)도 의미분할 대상에 포함 검토**: 현재 `apply_semantic_split`은 `body`만 분할
    → 1500자 초과 91건 중 일부 비-body 큰 청크 존재.
-3. (백로그는 `plan.md` 참조: 크로스페이지 병합, 부모-자식 검색, 형태소 BM25, 평가셋 등)
+2. (백로그는 `plan.md` 참조: 크로스페이지 병합, 부모-자식 검색, 형태소 BM25, 평가셋 등)
 
 ## 주의/함정 (재발 방지)
 - `.gitignore`/정규식: **인라인 주석 금지**, `\s{2,}`는 개행도 매칭(라인 병합 사고) → 인라인 치환 금지.
@@ -34,12 +43,11 @@
 rag_prototype 프로젝트(코네틱 보고서 RAG, OpenAI 전용, GitHub: ElNino-o/konetic-report-rag)
 이어서 작업한다. docs/nextsession.md 와 docs/plan.md 를 먼저 읽어 현재 상태를 파악해라.
 
-A+C 맥락 단위 청킹은 완료·재인덱싱됨(3332청크, context 채움 91.8%, 인덱싱 $0.247).
+A+C 맥락 단위 청킹 완료. 빈맥락 원인은 429 레이트리밋으로 규명·해결됨
+(max_completion_tokens 512, reasoning_effort=low, 백오프 재시도, 워커6, 2차 보충).
 이번엔 품질 튜닝을 진행한다(nextsession.md "다음 세션 TODO" 참조):
- 1) 빈맥락 8.2%(262건) 개선: semantic._ctx_one 의 max_completion_tokens 상향(~200)
-    또는 빈 응답만 1회 재시도. (gpt-5.4-nano 추론토큰 소진이 원인 추정)
- 2) 표/요약도 의미분할 대상 포함 검토(현재 body만 분할, 1500자 초과 91건)
- 3) 변경 시 1회 재인덱싱 → qa.answer + Playwright 검증 → 커밋·푸시
+ 1) 표/요약도 의미분할 대상 포함 검토(현재 body만 분할, 1500자 초과 91건)
+ 2) 변경 시 1회 재인덱싱 → qa.answer + Playwright 검증 → 커밋·푸시
 
 주의: .gitignore/정규식 인라인 주석 금지, \s{2,} 개행 매칭 사고 주의(둘 다 과거 사고).
 작업 전 uv sync --extra indexing 로 의존성(kiwipiepy 등) 설치 확인.

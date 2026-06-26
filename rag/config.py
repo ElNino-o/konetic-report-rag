@@ -139,6 +139,14 @@ OPENAI_RERANK_MODEL = os.getenv("OPENAI_RERANK_MODEL") or OPENAI_MODEL
 LLM_MAX_NEW_TOKENS = 1024
 LLM_TEMPERATURE = 0.2
 
+# ── 인덱싱: Contextual Retrieval(맥락 생성) 설정 ──────────
+# gpt-5.4-nano 는 추론형 → max_completion_tokens 가 추론+출력 합산 상한이다.
+# 1문장 맥락이지만 추론 여유분까지 넉넉히 확보해 빈 응답을 방지(요청 반영).
+CTX_MAX_TOKENS = int(os.getenv("CTX_MAX_TOKENS", "512"))
+CTX_REASONING_EFFORT = os.getenv("CTX_REASONING_EFFORT", "low")   # 단순 작업 → low
+CTX_WORKERS = int(os.getenv("CTX_WORKERS", "6"))                  # 429(RPM/TPM) 회피용 동시성
+CTX_MAX_RETRIES = int(os.getenv("CTX_MAX_RETRIES", "6"))          # 429 백오프 재시도
+
 # ── 로깅 레벨 (디버깅: LOG_LEVEL=DEBUG) ──────────────────
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 

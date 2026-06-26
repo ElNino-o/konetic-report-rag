@@ -40,7 +40,7 @@ storage/embed_input.jsonl
 storage/embeddings_bge.npz
 # 검증/테스트 부산물
 storage/*.err
-storage/ui_verify*.png
+storage/*.png
 # 커밋 대상(배포 memory 백엔드용):
 #   storage/chunks.jsonl, storage/reports_openai.npz, storage/bm25_openai.pkl
 

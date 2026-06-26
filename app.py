@@ -100,30 +100,105 @@ def render_answer(result, sess):
             st.caption(f"출처: {s.get('doc_source','')} | 파일: {s.get('source_file','')}")
 
 
-def render_doc_browser(by_doc: dict, docs: dict):
-    """우측: 문서 목록 + 선택 문서의 청크."""
+# ── 원본 PDF 위치/원문 링크 ──────────────────────────────
+@st.cache_data
+def _pdf_index() -> dict:
+    """데이터 폴더의 PDF 파일명→경로 색인(로컬 전용). 배포엔 PDF 없어 빈 dict."""
+    idx = {}
+    for d in config.pdf_dirs():
+        if d.exists():
+            for p in d.glob("*.pdf"):
+                idx[p.name] = str(p)
+    return idx
+
+
+def _pdf_path(source_file: str):
+    from pathlib import Path
+    p = _pdf_index().get(source_file)
+    return Path(p) if p else None
+
+
+def _konetic_search_url(title: str) -> str:
+    """konetic 보고서는 내부 ID로만 접근 → 제목 검색 링크로 원문 안내."""
+    import urllib.parse
+    return "https://www.google.com/search?q=" + urllib.parse.quote(f"{title} 코네틱")
+
+
+def _embed_pdf(path):
+    """실제 PDF 를 전체 화면으로 임베드(로컬). 내려받기 버튼 동반."""
+    import base64
+    data = path.read_bytes()
+    b64 = base64.b64encode(data).decode()
+    st.markdown(
+        f'<iframe src="data:application/pdf;base64,{b64}" width="100%" height="850" '
+        'style="border:1px solid #ddd;border-radius:6px"></iframe>',
+        unsafe_allow_html=True,
+    )
+    st.download_button("⬇️ PDF 내려받기", data, file_name=path.name,
+                       mime="application/pdf", use_container_width=True)
+
+
+def _render_full_text(chunks: list[dict]):
+    """원본 PDF 가 없을 때(배포): 추출 텍스트를 페이지 순서로 이어 문서 전문처럼 표시."""
+    cur = None
+    for c in sorted(chunks, key=lambda x: (int(x["page"]), x["chunk_id"])):
+        if c["page"] != cur:
+            cur = c["page"]
+            st.markdown(f"###### 📄 p.{cur}")
+        if c.get("table_title"):
+            st.caption(f"📊 {c['table_title']}")
+        st.markdown(c["text"])
+        if c.get("footnotes"):
+            st.caption("각주: " + " / ".join(c["footnotes"]))
+
+
+def render_full_document(source_file: str, chunks: list[dict], meta: dict):
+    """선택 문서를 전체 화면으로: 로컬 PDF 임베드 → 없으면 문서 전문(텍스트) + 원문 링크."""
+    st.markdown(f"**{meta.get('title', source_file)}**")
+    info = [x for x in [f"국가 {meta.get('country')}" if meta.get("country") else "",
+                        f"발행 {meta.get('year')}" if meta.get("year") else "",
+                        meta.get("field", "")] if x]
+    if info:
+        st.caption(" · ".join(info))
+    if meta.get("tags"):
+        st.caption(f"🏷️ {meta['tags']}")
+    st.markdown(f"[🔗 코네틱(konetic.or.kr)에서 원문 보기]"
+                f"({_konetic_search_url(meta.get('title') or source_file)})")
+    st.divider()
+    pdf = _pdf_path(source_file)
+    if pdf:
+        _embed_pdf(pdf)
+    else:
+        st.caption("ℹ️ 배포 환경에는 원본 PDF가 없어 **문서 전문(추출 텍스트)** 으로 표시합니다. "
+                   "원본은 위 ‘코네틱에서 원문 보기’ 링크로 확인하세요.")
+        _render_full_text(chunks)
+
+
+def render_doc_panel(by_doc: dict, docs: dict, relevant=None, key_prefix=""):
+    """질문 후엔 관련 문서만, 질문 전엔 전체 목록. 선택 시 전체 화면 표시."""
     if not docs:
         st.info("표시할 문서가 없습니다.")
         return
-    labels = {fn: f"{m.get('title', fn)} · {m.get('country','')}/{m.get('year','')}"
-              for fn, m in docs.items()}
-    sel = st.selectbox("문서 선택", list(docs.keys()), format_func=lambda fn: labels[fn])
-    m = docs[sel]
-    meta_line = f"**{m.get('title')}**"
-    if m.get("country") or m.get("year"):
-        meta_line += f"  \n국가: {m.get('country')} · 발행연도: {m.get('year')} · 분야: {m.get('field')}"
-    st.markdown(meta_line)
-    if m.get("tags"):
-        st.caption(f"🏷️ {m['tags']}")
+    all_files = list(docs.keys())
+    rel = [f for f in (relevant or []) if f in docs]
+    if rel:
+        show_all = st.checkbox(f"전체 문서 목록 보기 ({len(all_files)}건)",
+                               value=False, key=f"{key_prefix}showall")
+        files = all_files if show_all else rel
+        if not show_all:
+            st.caption(f"🎯 이번 질문에 사용된 문서 {len(rel)}건")
+    else:
+        files = all_files
+        st.caption(f"전체 문서 {len(all_files)}건 — 질문하면 관련 문서만 보여줍니다.")
+    labels = {fn: f"{docs[fn].get('title', fn)} · "
+                  f"{docs[fn].get('country','')}/{docs[fn].get('year','')}" for fn in files}
+    # 옵션 목록이 (전체↔관련) 바뀔 때 이전 선택값이 빠지면 예외 → 초기화
+    sk = f"{key_prefix}docsel"
+    if st.session_state.get(sk) not in files:
+        st.session_state.pop(sk, None)
+    sel = st.selectbox("문서 선택", files, format_func=lambda fn: labels[fn], key=sk)
     st.divider()
-    for c in sorted(by_doc[sel], key=lambda x: (int(x["page"]), x["chunk_id"])):
-        icon = TYPE_ICON.get(c["chunk_type"], "•")
-        with st.expander(f"{icon} p.{c['page']} · {c['chunk_type']} — {_path(c) or c['chunk_id']}"):
-            if c.get("table_title"):
-                st.caption(f"📊 {c['table_title']}")
-            st.write(c["text"])
-            if c.get("footnotes"):
-                st.caption("각주: " + " / ".join(c["footnotes"]))
+    render_full_document(sel, by_doc.get(sel, []), docs[sel])
 
 
 def load_qa():
@@ -212,10 +287,14 @@ if mode == "KEITI 보고서":
                 get_logger().exception("[app] answer 실패")
                 st.error(f"처리 중 오류: {type(e).__name__}: {e}")
                 st.stop()
+            # 이번 질문에 사용된 문서(중복 제거, 근거 순서 유지) → 우측 패널이 사용
+            st.session_state["keiti_src"] = list(
+                dict.fromkeys(s["source_file"] for s in result["sources"]))
             render_answer(result, sess)
     with right:
-        st.subheader("📚 PDF 목록")
-        render_doc_browser(corpus_by_doc, corpus_docs)
+        st.subheader("📄 문서")
+        render_doc_panel(corpus_by_doc, corpus_docs,
+                         relevant=st.session_state.get("keiti_src"), key_prefix="keiti_")
 
 # ════════════════════════════════════════════════════════
 # 모드 2: 내 문서 업로드 (세션 임시)
@@ -260,10 +339,13 @@ else:
                 get_logger().exception("[app] 업로드 answer 실패")
                 st.error(f"처리 중 오류: {type(e).__name__}: {e}")
                 st.stop()
+            st.session_state["upload_src"] = list(
+                dict.fromkeys(s["source_file"] for s in result["sources"]))
             render_answer(result, sess)
     with right:
-        st.subheader("📚 업로드 문서")
+        st.subheader("📄 문서")
         by_doc = defaultdict(list)
         for c in up["chunks"]:
             by_doc[c["source_file"]].append(c)
-        render_doc_browser(dict(by_doc), {fn: cs[0] for fn, cs in by_doc.items()})
+        render_doc_panel(dict(by_doc), {fn: cs[0] for fn, cs in by_doc.items()},
+                         relevant=st.session_state.get("upload_src"), key_prefix="upload_")
