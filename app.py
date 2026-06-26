@@ -142,8 +142,14 @@ with left:
         get_logger().info("[app] 질의제출 q=%r | vector=%s(%s) rerank=%s",
                           query, config.VECTOR_BACKEND, config.collection_name(),
                           config.RERANK_BACKEND)
-        with st.spinner("② 검색 → ③ 리랭킹 → ④ 답변 생성..."):
-            result = qa.answer(query)          # 전체 문서 대상(필터 없음)
+        try:
+            with st.spinner("② 검색 → ③ 리랭킹 → ④ 답변 생성..."):
+                result = qa.answer(query)      # 전체 문서 대상(필터 없음)
+        except Exception as e:
+            get_logger().exception("[app] answer 실패")
+            st.error(f"처리 중 오류가 발생했습니다: {type(e).__name__}: {e}\n\n"
+                     "OpenAI 키/네트워크 또는 인덱스 상태를 확인하세요.")
+            st.stop()
 
         # ⏱️/💰 모니터링: 처리시간 + 토큰/비용 (서버 로그에도 기록됨)
         tm, ug = result["timings"], result["usage"]

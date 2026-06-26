@@ -24,7 +24,9 @@ log = get_logger()
 def _openai_client():
     from openai import OpenAI
 
-    return OpenAI(base_url=config.OPENAI_BASE_URL, api_key=config.OPENAI_API_KEY)
+    # 타임아웃·재시도로 클라우드에서 무한 대기/일시적 오류에 대응
+    return OpenAI(base_url=config.OPENAI_BASE_URL, api_key=config.OPENAI_API_KEY,
+                  timeout=45.0, max_retries=2)
 
 
 # 마지막 OpenAI 임베딩 호출의 토큰 수(비용 모니터링용).

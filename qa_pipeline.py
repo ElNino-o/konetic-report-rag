@@ -84,9 +84,7 @@ def hybrid_search(query: str, filters: dict | None = None, top_k: int | None = N
 def _rerank_openai(query, candidates, top_n):
     """OpenAI LLM 리스트와이즈 리랭크 — API 1회로 관련도 순 정렬."""
     global LAST_RERANK_USAGE
-    from openai import OpenAI
-
-    client = OpenAI(base_url=config.OPENAI_BASE_URL, api_key=config.OPENAI_API_KEY)
+    client = common._openai_client()   # 타임아웃·재시도 공유
     listing = "\n".join(
         f"[{i}] {c['text'][:280].strip()}" for i, c in enumerate(candidates)
     )
@@ -167,14 +165,14 @@ def _build_context(chunks: list[dict]) -> str:
 
 
 def _generate_openai(messages) -> str:
-    """(B) OpenAI API. 키는 .env 의 OPENAI_API_KEY 에서 로드(config 경유)."""
+    """OpenAI API. 키는 .env/secrets 의 OPENAI_API_KEY 에서 로드(config 경유)."""
     global LAST_LLM_USAGE
-    from openai import BadRequestError, OpenAI
+    from openai import BadRequestError
 
     if not config.OPENAI_API_KEY:
-        raise RuntimeError("OPENAI_API_KEY 가 비어 있습니다. .env 에 키를 설정하세요.")
+        raise RuntimeError("OPENAI_API_KEY 가 비어 있습니다. .env/secrets 에 키를 설정하세요.")
 
-    client = OpenAI(base_url=config.OPENAI_BASE_URL, api_key=config.OPENAI_API_KEY)
+    client = common._openai_client()   # 타임아웃·재시도 공유
     base = {"model": config.OPENAI_MODEL, "messages": messages}
 
     # 신형 모델(gpt-5 계열 등)은 max_completion_tokens 를 쓰고 temperature 기본값만 허용.

@@ -63,6 +63,12 @@ def npz_path() -> Path:
 #   "remote" : 로컬에서 띄운 Chroma 서버에 HTTP 접속 (터널로 노출)
 VECTOR_BACKEND = os.getenv("VECTOR_BACKEND", "chroma")   # chroma | memory | remote
 
+# 클라우드 안전 폴백: chroma/remote 인데 chromadb 가 없으면(슬림 배포) memory 로 전환.
+# (secrets 에 VECTOR_BACKEND=memory 를 깜빡해도 첫 질의에서 크래시하지 않도록)
+import importlib.util as _ilu  # noqa: E402
+if VECTOR_BACKEND in ("chroma", "remote") and _ilu.find_spec("chromadb") is None:
+    VECTOR_BACKEND = "memory"
+
 # remote 접속 정보 (chroma run --host 0.0.0.0 --port 8000 후 터널 노출)
 CHROMA_HTTP_HOST = os.getenv("CHROMA_HTTP_HOST", "localhost")
 CHROMA_HTTP_PORT = int(os.getenv("CHROMA_HTTP_PORT", "8000"))
