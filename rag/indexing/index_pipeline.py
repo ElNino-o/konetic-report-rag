@@ -178,7 +178,16 @@ def main():
     if not all_chunks:
         print("처리할 청크가 없습니다. data 구성을 확인하세요.")
         return
-    build_index(all_chunks)
+    # 완전중복 본문 제거(첫 등장 유지) — 임베딩 비용·노이즈 절감
+    seen, deduped = set(), []
+    for c in all_chunks:
+        if c["text"] in seen:
+            continue
+        seen.add(c["text"])
+        deduped.append(c)
+    if len(deduped) < len(all_chunks):
+        print(f"   중복 제거: {len(all_chunks)} → {len(deduped)} 청크")
+    build_index(deduped)
 
 
 if __name__ == "__main__":
