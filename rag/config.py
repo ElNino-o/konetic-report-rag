@@ -138,6 +138,9 @@ OPENAI_RERANK_MODEL = os.getenv("OPENAI_RERANK_MODEL") or OPENAI_MODEL
 
 LLM_MAX_NEW_TOKENS = 1024
 LLM_TEMPERATURE = 0.2
+# gpt-5 계열(추론 모델)의 추론 강도. 낮을수록 빠름. RAG 정리 작업엔 low 로 충분.
+# minimal | low | medium | high (구형 모델은 무시됨)
+LLM_REASONING_EFFORT = os.getenv("LLM_REASONING_EFFORT", "low")
 
 # ── 인덱싱: Contextual Retrieval(맥락 생성) 설정 ──────────
 # gpt-5.4-nano 는 추론형 → max_completion_tokens 가 추론+출력 합산 상한이다.

@@ -70,13 +70,28 @@ def _path(c: dict) -> str:
                                   c.get("subsection")] if p)
 
 
-def render_answer(result, sess):
-    """답변 + 모니터링(시간/토큰/비용) + 근거."""
-    tm, ug = result["timings"], result["usage"]
+# 답변 형태(버튼) — qa_pipeline.STYLE_GUIDE 의 키와 일치해야 한다.
+STYLE_LABELS = {
+    "summary": "📌 3문장 요약",
+    "normal": "📝 일반 답변",
+    "expert": "🎓 전문가 답변",
+}
+STYLE_HELP = {
+    "summary": "핵심만 3문장 이내로 압축",
+    "normal": "이해하기 쉬운 일반 설명",
+    "expert": "수치·정책·함의까지 짚는 전문가 수준",
+}
+
+
+def _account_usage(ug, sess):
+    """이번 LLM 호출의 토큰/비용을 세션 누적에 1회 반영."""
     sess["cost"] += ug["cost_usd"]
     sess["queries"] += 1
     sess["tokens"] += (ug["embed_tokens"] + ug["rerank_tokens"]
                        + ug["llm_prompt_tokens"] + ug["llm_completion_tokens"])
+
+
+def render_metrics(tm, ug):
     mc = st.columns(4)
     mc[0].metric("총 시간", f"{tm['total']:.1f}s")
     mc[1].metric("검색", f"{tm['retrieve']:.1f}s")
@@ -87,17 +102,102 @@ def render_answer(result, sess):
         st.json({"임베딩 토큰": ug["embed_tokens"], "리랭크 토큰": ug["rerank_tokens"],
                  "LLM 토큰(p/c)": f"{ug['llm_prompt_tokens']}/{ug['llm_completion_tokens']}",
                  "비용(USD)": {k: round(v, 6) for k, v in ug["cost_breakdown"].items()}})
-    render_session_cost()   # 사이드바 누적값을 이번 질의 반영해 즉시 갱신
-    st.subheader("💬 답변")
-    st.markdown(result["answer"])
+
+
+def render_sources(sources):
     st.subheader("📎 근거 (출처 · 페이지)")
-    for i, s in enumerate(result["sources"], 1):
+    for i, s in enumerate(sources, 1):
         with st.expander(f"[{i}] {s.get('title')} · p.{s.get('page')} · "
                          f"{s.get('chunk_type','')} (score={s['score']:.3f})"):
             if _path(s):
                 st.caption(f"📑 {_path(s)}")
             st.write(s["text"])
             st.caption(f"출처: {s.get('doc_source','')} | 파일: {s.get('source_file','')}")
+
+
+def style_buttons(prefix, disabled):
+    """3가지 답변 형태 버튼을 한 줄로 렌더. 클릭된 형태 키(없으면 None) 반환."""
+    cols = st.columns(len(STYLE_LABELS))
+    clicked = None
+    for col, stl in zip(cols, STYLE_LABELS):
+        if col.button(STYLE_LABELS[stl], key=f"{prefix}btn_{stl}", type="primary",
+                      use_container_width=True, disabled=disabled, help=STYLE_HELP[stl]):
+            clicked = stl
+    return clicked
+
+
+def run_style(prefix, query, style, sess, raw_key, search_fn, src_key):
+    """형태 버튼 클릭 처리(스트리밍). 같은 질문이면 근거 재사용(LLM만), 새 질문이면 검색부터.
+
+    답변을 st.write_stream 으로 실시간 출력해 체감 대기를 줄인다.
+    search_fn() -> {"sources","timings"} : 새 질문일 때 검색+리랭크를 수행하는 콜백.
+    이미 생성된 형태면 렌더하지 않고 False 반환(→ render_qa 가 캐시 표시).
+    """
+    import time as _time
+    from rag import qa_pipeline as qa
+    qa_state = st.session_state.get(f"{prefix}qa")
+    same = qa_state and qa_state["query"] == query
+    if same and style in qa_state["styles"]:
+        st.session_state[f"{prefix}sel"] = style
+        return False
+    try:
+        if same:                                   # 근거 재사용
+            sources = qa_state["sources"]
+            rt, rrt = qa_state["retrieve_t"], qa_state["rerank_t"]
+        else:                                      # 새 질문 → 검색+리랭크
+            with st.spinner("검색 → 리랭킹 중..."):
+                sr = search_fn()
+            sources = sr["sources"]
+            rt, rrt = sr["timings"]["retrieve"], sr["timings"]["rerank"]
+            st.session_state[src_key] = list(
+                dict.fromkeys(s["source_file"] for s in sources))
+        st.subheader(f"💬 답변 · {STYLE_LABELS[style]}")
+        t0 = _time.time()
+        text = st.write_stream(
+            qa.generate_answer_stream(query, sources, api_key=raw_key or None, style=style))
+        llm_t = _time.time() - t0
+        usage = qa.collect_llm_usage() if same else qa.collect_full_usage()
+    except Exception as e:
+        get_logger().exception("[app] 스트리밍 질의 실패")
+        st.error(f"처리 중 오류: {type(e).__name__}: {e}")
+        st.stop()
+
+    entry = {"answer": text, "llm_t": llm_t, "usage": usage}
+    if same:
+        qa_state["styles"][style] = entry
+    else:
+        st.session_state[f"{prefix}qa"] = {
+            "query": query, "sources": sources, "retrieve_t": rt, "rerank_t": rrt,
+            "styles": {style: entry}}
+    _account_usage(usage, sess)
+    st.session_state[f"{prefix}sel"] = style
+
+    tm = {"retrieve": rt, "rerank": rrt, "llm": llm_t, "total": rt + rrt + llm_t}
+    render_metrics(tm, usage)
+    render_session_cost()      # 사이드바 누적값 즉시 갱신
+    render_sources(sources)
+    return True
+
+
+def render_qa(prefix):
+    """저장된(캐시된) 질의 결과를 현재 선택된 형태로 렌더 — 스트리밍 안 한 rerun 용."""
+    qa_state = st.session_state.get(f"{prefix}qa")
+    if not qa_state:
+        return
+    from rag import qa_pipeline as qa
+    sel = st.session_state.get(f"{prefix}sel") or qa.DEFAULT_STYLE
+    if sel not in qa_state["styles"]:
+        sel = next(iter(qa_state["styles"]))
+    cur = qa_state["styles"][sel]
+
+    st.subheader(f"💬 답변 · {STYLE_LABELS[sel]}")
+    st.markdown(cur["answer"])
+    tm = {"retrieve": qa_state["retrieve_t"], "rerank": qa_state["rerank_t"],
+          "llm": cur["llm_t"]}
+    tm["total"] = tm["retrieve"] + tm["rerank"] + tm["llm"]
+    render_metrics(tm, cur["usage"])
+    render_session_cost()   # 사이드바 누적값 즉시 갱신
+    render_sources(qa_state["sources"])
 
 
 # ── 원본 PDF 위치/원문 링크 ──────────────────────────────
@@ -273,24 +373,21 @@ if mode == "KEITI 보고서":
         st.subheader("✍️ 질문")
         query = st.text_area("자연어 질문", height=100,
                              placeholder="예) 폴란드 이차전지 시장 동향을 알려줘")
-        run = st.button("🔎 검색 · 답변", type="primary", use_container_width=True,
-                        disabled=not (corpus_docs and eff_key))
+        st.caption("원하는 답변 형태 버튼을 누르면 검색·답변을 시작합니다.")
+        clicked = style_buttons("keiti_", disabled=not (corpus_docs and eff_key))
         if not eff_key:
             st.warning("사이드바에 OpenAI 키를 입력하세요.")
-        if run and query.strip():
+        streamed = False
+        if clicked and query.strip():
             qa = load_qa()
-            get_logger().info("[app] KEITI 질의 q=%r rerank=%s", query, rr)
-            try:
-                with st.spinner("검색 → 리랭킹 → 답변 생성 중..."):
-                    result = qa.answer(query, rerank_backend=rr, api_key=key_in.strip() or None)
-            except Exception as e:
-                get_logger().exception("[app] answer 실패")
-                st.error(f"처리 중 오류: {type(e).__name__}: {e}")
-                st.stop()
-            # 이번 질문에 사용된 문서(중복 제거, 근거 순서 유지) → 우측 패널이 사용
-            st.session_state["keiti_src"] = list(
-                dict.fromkeys(s["source_file"] for s in result["sources"]))
-            render_answer(result, sess)
+            get_logger().info("[app] KEITI 질의 q=%r rerank=%s style=%s", query, rr, clicked)
+            streamed = run_style(
+                "keiti_", query, clicked, sess, key_in.strip(),
+                search_fn=lambda: qa.search_rerank(
+                    query, rerank_backend=rr, api_key=key_in.strip() or None),
+                src_key="keiti_src")
+        if not streamed:
+            render_qa("keiti_")
     with right:
         st.subheader("📄 문서")
         render_doc_panel(corpus_by_doc, corpus_docs,
@@ -321,27 +418,26 @@ else:
         st.subheader("✍️ 질문")
         uq = st.text_area("자연어 질문", height=100, key="upq",
                           placeholder="업로드한 문서에 대해 질문하세요")
-        urun = st.button("🔎 검색 · 답변", type="primary", use_container_width=True,
-                         disabled=not (up["chunks"] and eff_key))
+        st.caption("원하는 답변 형태 버튼을 누르면 검색·답변을 시작합니다.")
+        uclicked = style_buttons("upload_", disabled=not (up["chunks"] and eff_key))
         if not up["chunks"]:
             st.info("먼저 PDF 를 업로드·처리하세요.")
-        if urun and uq.strip():
+        ustreamed = False
+        if uclicked and uq.strip():
             from rag import upload_pipeline
             qa = load_qa()
-            get_logger().info("[app] 업로드 질의 q=%r rerank=%s", uq, rr)
-            try:
-                with st.spinner("검색 → 리랭킹 → 답변 생성 중..."):
-                    hits = upload_pipeline.search(uq, up, key_in.strip() or config.OPENAI_API_KEY,
-                                                  top_k=config.TOP_K_RETRIEVE)
-                    result = qa.answer(uq, candidates=hits, rerank_backend=rr,
-                                       api_key=key_in.strip() or None)
-            except Exception as e:
-                get_logger().exception("[app] 업로드 answer 실패")
-                st.error(f"처리 중 오류: {type(e).__name__}: {e}")
-                st.stop()
-            st.session_state["upload_src"] = list(
-                dict.fromkeys(s["source_file"] for s in result["sources"]))
-            render_answer(result, sess)
+            get_logger().info("[app] 업로드 질의 q=%r rerank=%s style=%s", uq, rr, uclicked)
+            ustreamed = run_style(
+                "upload_", uq, uclicked, sess, key_in.strip(),
+                search_fn=lambda: qa.search_rerank(
+                    uq,
+                    candidates=upload_pipeline.search(
+                        uq, up, key_in.strip() or config.OPENAI_API_KEY,
+                        top_k=config.TOP_K_RETRIEVE),
+                    rerank_backend=rr, api_key=key_in.strip() or None),
+                src_key="upload_src")
+        if not ustreamed:
+            render_qa("upload_")
     with right:
         st.subheader("📄 문서")
         by_doc = defaultdict(list)

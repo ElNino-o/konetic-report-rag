@@ -150,6 +150,40 @@ SYSTEM_PROMPT = (
     "답변 문장 끝에는 사용한 근거의 번호를 [1], [2], [3] 형식으로 표기하세요."
 )
 
+# 답변 형태(스타일) — 같은 근거로 서술 수준만 달리한다.
+STYLE_GUIDE = {
+    "summary": (
+        "형식: 핵심만 3문장 이내로 요약하세요. 군더더기 없이 결론 위주로, "
+        "각 문장 끝에 근거 번호를 인용하세요."
+    ),
+    "normal": (
+        "형식: 일반 독자가 이해하기 쉽게 핵심을 자연스러운 문단으로 설명하세요. "
+        "필요하면 짧은 목록을 써도 됩니다."
+    ),
+    "expert": (
+        "형식: 해당 분야 전문가가 납득할 수준으로 깊고 정밀하게 답하세요. "
+        "근거에 나온 구체 수치·정책명·시점·기관명을 명시하고, 항목별로 구조화하며, "
+        "함의와 한계(자료가 다루지 않는 부분)까지 짚으세요. 근거 인용을 유지하세요."
+    ),
+}
+DEFAULT_STYLE = "normal"
+
+# 형태별 출력 토큰 상한 — 요약은 짧게(빠름), 전문가는 잘리지 않게 넉넉히.
+STYLE_MAX_TOKENS = {
+    "summary": 400,
+    "normal": 1024,
+    "expert": 1600,
+}
+
+
+def _max_tokens(style: str) -> int:
+    return STYLE_MAX_TOKENS.get(style, config.LLM_MAX_NEW_TOKENS)
+
+
+def _system_prompt(style: str) -> str:
+    guide = STYLE_GUIDE.get(style)
+    return f"{SYSTEM_PROMPT}\n\n{guide}" if guide else SYSTEM_PROMPT
+
 
 def cite_label(c: dict) -> str:
     """인용 라벨: 제목 p.N · 챕터>섹션 (구조 정보 포함)."""
@@ -166,29 +200,63 @@ def _build_context(chunks: list[dict]) -> str:
     return "\n\n".join(lines)
 
 
-def _generate_openai(messages, api_key=None) -> str:
-    """OpenAI API. 키는 세션(BYOK) 또는 .env/secrets 에서 로드."""
-    global LAST_LLM_USAGE
-    from openai import BadRequestError
+def _request_attempts(messages, max_tokens: int, stream: bool):
+    """모델 호환 순서대로 시도할 create() 인자 목록.
 
-    client = common._openai_client(common.resolve_key(api_key))
+    신형(gpt-5 계열): max_completion_tokens + reasoning_effort(낮을수록 빠름).
+    구형: max_tokens + temperature. 신형 우선 후 폴백.
+    """
     base = {"model": config.OPENAI_MODEL, "messages": messages}
+    if stream:
+        base["stream"] = True
+        base["stream_options"] = {"include_usage": True}
+    new_style = {**base, "max_completion_tokens": max_tokens}
+    attempts = []
+    if config.LLM_REASONING_EFFORT:
+        attempts.append({**new_style, "reasoning_effort": config.LLM_REASONING_EFFORT})
+    attempts.append(new_style)
+    attempts.append({**base, "max_tokens": max_tokens, "temperature": config.LLM_TEMPERATURE})
+    return attempts
 
-    # 신형 모델(gpt-5 계열 등)은 max_completion_tokens 를 쓰고 temperature 기본값만 허용.
-    # 구형 모델은 max_tokens + temperature 를 받는다. 신형 우선 시도 후 폴백.
-    try:
-        resp = client.chat.completions.create(
-            **base, max_completion_tokens=config.LLM_MAX_NEW_TOKENS
-        )
-    except BadRequestError:
-        resp = client.chat.completions.create(
-            **base,
-            max_tokens=config.LLM_MAX_NEW_TOKENS,
-            temperature=config.LLM_TEMPERATURE,
-        )
+
+def _create_with_fallback(client, messages, max_tokens: int, stream: bool):
+    from openai import BadRequestError
+    last_err = None
+    for kw in _request_attempts(messages, max_tokens, stream):
+        try:
+            return client.chat.completions.create(**kw)
+        except BadRequestError as e:
+            last_err = e
+    raise last_err
+
+
+def _generate_openai(messages, api_key=None, max_tokens: int | None = None) -> str:
+    """OpenAI API(비스트리밍). 키는 세션(BYOK) 또는 .env/secrets 에서 로드."""
+    global LAST_LLM_USAGE
+    client = common._openai_client(common.resolve_key(api_key))
+    resp = _create_with_fallback(client, messages,
+                                 max_tokens or config.LLM_MAX_NEW_TOKENS, stream=False)
     u = resp.usage
     LAST_LLM_USAGE = (u.prompt_tokens, u.completion_tokens, config.OPENAI_MODEL)
     return resp.choices[0].message.content
+
+
+def _stream_openai(messages, api_key=None, max_tokens: int | None = None):
+    """OpenAI API(스트리밍). 토큰 조각을 yield 하고, 종료 시 사용량을 기록한다."""
+    global LAST_LLM_USAGE
+    client = common._openai_client(common.resolve_key(api_key))
+    stream = _create_with_fallback(client, messages,
+                                   max_tokens or config.LLM_MAX_NEW_TOKENS, stream=True)
+    usage = None
+    for chunk in stream:
+        if getattr(chunk, "usage", None):
+            usage = chunk.usage
+        if chunk.choices:
+            delta = chunk.choices[0].delta.content
+            if delta:
+                yield delta
+    if usage:
+        LAST_LLM_USAGE = (usage.prompt_tokens, usage.completion_tokens, config.OPENAI_MODEL)
 
 
 def _extractive_answer(query: str, chunks: list[dict]) -> str:
@@ -201,21 +269,41 @@ def _extractive_answer(query: str, chunks: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def generate_answer(query: str, chunks: list[dict], api_key: str | None = None) -> str:
+def generate_answer(query: str, chunks: list[dict], api_key: str | None = None,
+                    style: str = DEFAULT_STYLE) -> str:
     global LAST_LLM_USAGE
     LAST_LLM_USAGE = None
     if not chunks:
         return "관련 근거를 찾지 못했습니다."
     messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": _system_prompt(style)},
         {"role": "user", "content": f"[질문]\n{query}\n\n[근거]\n{_build_context(chunks)}"},
     ]
     try:
-        return _generate_openai(messages, api_key=api_key)
+        return _generate_openai(messages, api_key=api_key, max_tokens=_max_tokens(style))
     except Exception as e:
         # 네트워크/키 오류 등 → 발췌형 폴백으로 결과는 항상 보여준다
         log.warning("[LLM 폴백] %s: %s", type(e).__name__, e)
         return _extractive_answer(query, chunks)
+
+
+def generate_answer_stream(query: str, chunks: list[dict], api_key: str | None = None,
+                           style: str = DEFAULT_STYLE):
+    """스트리밍 답변 생성기 — 토큰 조각을 yield. UI 의 st.write_stream 에서 사용."""
+    global LAST_LLM_USAGE
+    LAST_LLM_USAGE = None
+    if not chunks:
+        yield "관련 근거를 찾지 못했습니다."
+        return
+    messages = [
+        {"role": "system", "content": _system_prompt(style)},
+        {"role": "user", "content": f"[질문]\n{query}\n\n[근거]\n{_build_context(chunks)}"},
+    ]
+    try:
+        yield from _stream_openai(messages, api_key=api_key, max_tokens=_max_tokens(style))
+    except Exception as e:
+        log.warning("[LLM 스트림 폴백] %s: %s", type(e).__name__, e)
+        yield _extractive_answer(query, chunks)
 
 
 # ════════════════════════════════════════════════════════
@@ -239,11 +327,82 @@ def _collect_usage() -> dict:
     }
 
 
+def collect_full_usage() -> dict:
+    """이번 질의의 임베딩+리랭크+LLM 사용량(새 질문용)."""
+    return _collect_usage()
+
+
+def collect_llm_usage() -> dict:
+    """LLM 호출분만 집계(근거 재사용·형태 전환용 — 검색/리랭크 비용 0)."""
+    lm = LAST_LLM_USAGE
+    lm_usd = metering.chat_cost(lm[2], lm[0], lm[1]) if lm else 0.0
+    return {
+        "embed_tokens": 0, "rerank_tokens": 0,
+        "llm_prompt_tokens": lm[0] if lm else 0,
+        "llm_completion_tokens": lm[1] if lm else 0,
+        "cost_usd": lm_usd,
+        "cost_breakdown": {"embed": 0.0, "rerank": 0.0, "llm": lm_usd},
+    }
+
+
+# ════════════════════════════════════════════════════════
+# 검색+리랭크만 수행(답변 생성 분리) — 스트리밍 UI 에서 근거를 먼저 확보
+# ════════════════════════════════════════════════════════
+def search_rerank(query: str, filters: dict | None = None, rerank_backend: str | None = None,
+                  api_key: str | None = None, candidates: list[dict] | None = None) -> dict:
+    """검색→리랭크까지 수행하고 근거(sources)와 단계별 시간을 돌려준다.
+
+    candidates 를 주면(업로드 모드) 벡터검색을 건너뛴다. 임베딩/리랭크 사용량은
+    전역에 기록되어, 이후 collect_full_usage() 가 LLM 사용량과 합산한다.
+    """
+    be = rerank_backend or config.RERANK_BACKEND
+    t = {}
+    if candidates is None:
+        t0 = time.time()
+        candidates = hybrid_search(query, filters, api_key=api_key)
+        t["retrieve"] = time.time() - t0
+    else:
+        t["retrieve"] = 0.0
+    t0 = time.time()
+    top = rerank(query, candidates, backend=be, api_key=api_key)
+    t["rerank"] = time.time() - t0
+    return {"sources": top, "timings": t}
+
+
 # ════════════════════════════════════════════════════════
 # 오케스트레이터: 1. → 2. → 3. → 4. (+ 시간/토큰/비용 모니터링)
 # ════════════════════════════════════════════════════════
+def generate_only(query: str, chunks: list[dict], style: str = DEFAULT_STYLE,
+                  api_key: str | None = None) -> dict:
+    """이미 검색·리랭크된 근거(chunks)를 재사용해 답변만 다시 생성한다.
+
+    검색/임베딩/리랭크를 건너뛰므로 비용은 이번 LLM 호출분만 발생한다.
+    답변 형태(style) 전환 버튼에서 사용한다.
+    """
+    global LAST_LLM_USAGE
+    LAST_LLM_USAGE = None
+    t0 = time.time()
+    text = generate_answer(query, chunks, api_key=api_key, style=style)
+    llm_t = time.time() - t0
+    lm = LAST_LLM_USAGE
+    lm_usd = metering.chat_cost(lm[2], lm[0], lm[1]) if lm else 0.0
+    usage = {
+        "embed_tokens": 0,
+        "rerank_tokens": 0,
+        "llm_prompt_tokens": lm[0] if lm else 0,
+        "llm_completion_tokens": lm[1] if lm else 0,
+        "cost_usd": lm_usd,
+        "cost_breakdown": {"embed": 0.0, "rerank": 0.0, "llm": lm_usd},
+    }
+    log.info("4'. 답변 재생성(style=%s) %.2fs | llm 토큰 %d+%d | 추정비용 %s",
+             style, llm_t, usage["llm_prompt_tokens"], usage["llm_completion_tokens"],
+             metering.usd(lm_usd))
+    return {"answer": text, "usage": usage, "llm_time": llm_t}
+
+
 def answer(query: str, filters: dict | None = None, rerank_backend: str | None = None,
-           api_key: str | None = None, candidates: list[dict] | None = None):
+           api_key: str | None = None, candidates: list[dict] | None = None,
+           style: str = DEFAULT_STYLE):
     """질의응답. candidates 를 주면(업로드 모드) 벡터검색을 건너뛰고 재사용한다."""
     be = rerank_backend or config.RERANK_BACKEND
     log.info("─" * 8 + " 질의: %r (embed=openai, rerank=%s, llm=%s)",
@@ -261,7 +420,7 @@ def answer(query: str, filters: dict | None = None, rerank_backend: str | None =
     t["rerank"] = time.time() - t0
 
     t0 = time.time()
-    text = generate_answer(query, top, api_key=api_key)
+    text = generate_answer(query, top, api_key=api_key, style=style)
     t["llm"] = time.time() - t0
 
     usage = _collect_usage()
