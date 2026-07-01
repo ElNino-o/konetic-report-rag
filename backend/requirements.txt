@@ -1,0 +1,5 @@
+# FastAPI 백엔드 추가 의존성 (기존 rag/ 런타임 의존성에 더해 설치)
+#   uv pip install -r backend/requirements.txt   (또는 pip)
+fastapi>=0.110
+uvicorn[standard]>=0.29
+python-multipart>=0.0.9

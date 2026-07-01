@@ -44,6 +44,16 @@ storage/*.png
 # 커밋 대상(배포 memory 백엔드용):
 #   storage/chunks.jsonl, storage/reports_openai.npz, storage/bm25_openai.pkl
 
+# 프론트엔드(React/Vite)
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/*.tsbuildinfo
+**/*.tsbuildinfo
+# tsc -b 가 vite.config.ts 를 컴파일해 남기는 산출물(소스는 .ts 만 커밋)
+frontend/vite.config.js
+frontend/vite.config.d.ts
+
 # OS
 .DS_Store
 Thumbs.db
