@@ -4,6 +4,10 @@
 !.env.example
 .streamlit/secrets.toml
 
+# KEITI 원본 데이터(저작권=한국환경산업기술원) — 재인덱싱용 로컬 전용, 커밋 금지
+# 런타임은 커밋된 storage/ 산출물만 사용한다.
+data/
+
 # 파이썬
 __pycache__/
 *.py[cod]
@@ -57,3 +61,4 @@ frontend/vite.config.d.ts
 # OS
 .DS_Store
 Thumbs.db
+.gstack/

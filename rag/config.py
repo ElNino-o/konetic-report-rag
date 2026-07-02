@@ -20,9 +20,9 @@ from dotenv import load_dotenv
 ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT / ".env")
 
-# 실제 원본 데이터 위치 (사용자가 별도 업로드하지 않고 여기서 자동 로드)
-# 환경변수 RAG_DATA_DIR 로 덮어쓸 수 있다.
-DATA_DIR = Path(os.getenv("RAG_DATA_DIR", r"C:\Users\jihyun\Desktop\KEITI_AD\ecolab\데이터"))
+# 재인덱싱 시에만 쓰는 원본 데이터(PDF/엑셀) 위치. 런타임은 커밋된 storage/ 만 사용한다.
+# 기본값은 리포 상대 경로(data/); 실제 원본은 .env 의 RAG_DATA_DIR 로 지정한다.
+DATA_DIR = Path(os.getenv("RAG_DATA_DIR", str(ROOT / "data")))
 # 보고서 PDF 가 들어 있는 하위 폴더들 (90건 = country 60 + policy 30)
 PDF_SUBDIRS = ["country_report", "policy_report"]
 METADATA_XLSX = DATA_DIR / "report_list.xlsx"   # 메타데이터 엑셀 (시트 2개)
