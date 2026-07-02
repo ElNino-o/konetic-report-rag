@@ -18,20 +18,21 @@ from collections import defaultdict
 from pathlib import Path
 from threading import Lock
 
-# 저장소 루트를 import 경로에 추가(backend/ 의 부모) → `rag` 패키지 사용
-ROOT = Path(__file__).resolve().parent.parent
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
-from rag import config
-from rag import qa_pipeline as qa
-from rag import upload_pipeline
-from rag.monitoring import get_logger
+# 저장소 루트를 import 경로에 추가(backend/ 의 부모) → `rag` 패키지 사용.
+# 아래 rag import 는 이 sys.path 설정 이후여야 하므로 E402 를 의도적으로 무시한다.
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from rag import config  # noqa: E402
+from rag import qa_pipeline as qa  # noqa: E402
+from rag import upload_pipeline  # noqa: E402
+from rag.monitoring import get_logger  # noqa: E402
 
 log = get_logger()
 app = FastAPI(title="코네틱 보고서 RAG API")

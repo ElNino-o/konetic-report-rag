@@ -65,7 +65,7 @@ def embed_texts(texts: list[str], api_key: str | None = None) -> list[list[float
 # ── 5. Chroma 클라이언트 (로컬 영속 / 원격 HTTP) ─────────
 @lru_cache(maxsize=1)
 def get_chroma_client():
-    import chromadb
+    import chromadb  # type: ignore  # 선택적 의존성(indexing extra) — memory 백엔드 환경엔 미설치
 
     if config.VECTOR_BACKEND == "remote":
         # C: 로컬에서 띄운 Chroma 서버에 HTTP 접속(터널 노출 시 사용)

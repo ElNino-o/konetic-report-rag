@@ -1,0 +1,94 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/* 폰트(Pretendard · IBM Plex Mono)는 index.html <link> 로 로드 */
+
+/* 다크 모드는 .dark 클래스로 토글 */
+@custom-variant dark (&:is(.dark *));
+
+/* ── 디자인 토큰 (DESIGN.md · 팔레트 C 잉크&틸) ── */
+@theme {
+  --font-sans: "Pretendard Variable", Pretendard, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  --color-bg: #ffffff;
+  --color-canvas: #fafaf9;
+  --color-surface: #ffffff;
+  --color-ink: #111114;
+  --color-muted: #57575e;
+  --color-faint: #8a8a90;
+  --color-border: #e8e8e6;
+  --color-border-strong: #dadad7;
+  --color-primary: #16181d;
+  --color-primary-fg: #ffffff;
+  --color-primary-tint: #f0f1ee;
+  --color-teal: #0f766e;
+  --color-teal-tint: #e4f1ef;
+  --color-warn: #9a6b1e;
+  --color-warn-tint: #fbf2e0;
+  --color-danger: #b4232b;
+
+  --radius-sm: 7px;
+  --radius-md: 11px;
+  --radius-lg: 14px;
+}
+
+/* 다크: 표면 재설계 + 틸 밝힘 (DESIGN.md) */
+.dark {
+  --color-bg: #141514;
+  --color-canvas: #1c1e1c;
+  --color-surface: #1c1e1c;
+  --color-ink: #ecefea;
+  --color-muted: #a6ada3;
+  --color-faint: #7a817a;
+  --color-border: #2c2e2c;
+  --color-border-strong: #3a3d3a;
+  --color-primary: #ecefea;
+  --color-primary-fg: #141514;
+  --color-primary-tint: #24261f;
+  --color-teal: #4fd1c5;
+  --color-teal-tint: #16231f;
+  --color-warn: #d6a24e;
+  --color-warn-tint: #2a2415;
+  --color-danger: #e5686f;
+}
+
+@layer base {
+  html {
+    color-scheme: light;
+  }
+  html.dark {
+    color-scheme: dark;
+  }
+  body {
+    margin: 0;
+    background: var(--color-bg);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 15px;
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+    /* 한국어 줄바꿈: 절 중간 끊김 방지 */
+    word-break: keep-all;
+    text-wrap: pretty;
+  }
+  ::selection {
+    background: var(--color-teal-tint);
+  }
+}
+
+/* 스트리밍 커서 점멸 */
+@keyframes caret-blink {
+  0%, 60% { opacity: 1; }
+  61%, 100% { opacity: 0; }
+}
+.caret::after {
+  content: "";
+  display: inline-block;
+  width: 2px;
+  height: 1.05em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--color-teal);
+  animation: caret-blink 1s step-end infinite;
+}
