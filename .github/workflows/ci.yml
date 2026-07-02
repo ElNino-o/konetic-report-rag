@@ -1,0 +1,63 @@
+name: CI
+
+# 자동화된 테스트 스위트는 없다(README) → CI는 "빌드/임포트/맞춤법이 깨지지 않는가"를 지킨다.
+#   backend    : ruff 린트 + RAG 코어/FastAPI 어댑터 임포트 스모크
+#   frontend   : 타입체크(tsc -b) + 프로덕션 빌드(vite build)
+#   spellcheck : cSpell (cspell.json 사전/제외경로 적용)
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend Lint & Import
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.2.0
+        with:
+          enable-cache: true
+      - name: Sync runtime deps (lockfile 고정)
+        run: uv sync --frozen
+      - name: Install FastAPI backend deps
+        run: uv pip install -r backend/requirements.txt
+      - name: Ruff lint
+        run: uvx ruff check .
+      - name: Import smoke (rag 코어 + FastAPI 어댑터)
+        env:
+          OPENAI_API_KEY: sk-ci-dummy   # 임포트만 검증(외부 호출 없음)
+        run: uv run python -c "import backend.main; import rag.qa_pipeline"
+
+  frontend:
+    name: Frontend Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Build (tsc -b && vite build)
+        run: npm run build
+
+  spellcheck:
+    name: Spellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: cSpell
+        run: npx --yes cspell@latest "**/*.{py,md,yaml,yml,toml,json,jsonl}" --no-progress

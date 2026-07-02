@@ -29,3 +29,8 @@ indexing = [
 [tool.uv]
 # 이 저장소는 라이브러리가 아니라 앱이다 → 패키지 빌드하지 않음
 package = false
+
+[tool.ruff]
+# CI(ruff check)의 린트 결과를 결정론적으로 고정 — requires-python 과 타깃 일치
+target-version = "py310"
+line-length = 100
