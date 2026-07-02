@@ -11,6 +11,9 @@ frontend/  React + Vite + TypeScript — 기존 2모드 UX 재현
 app.py     기존 Streamlit 버전(그대로 유지, 삭제하지 않음)
 ```
 
+> **한 번에 실행**: 루트에서 `./dev.sh`(mac/Linux) 또는 `dev.bat`(Windows)를 쓰면 두 서버를
+> 함께 띄운다(의존성 자동 설치 + 기동 전 `rag.preflight` 환경 점검). 아래 1·2는 수동 실행 절차다.
+
 ## 1. 백엔드 실행 (FastAPI, 포트 8000)
 
 ```bash
@@ -65,4 +68,3 @@ npm run dev        # http://localhost:5173  (/api 는 8000 으로 프록시)
 - `/api/query`·`/api/answer` 는 사용량 전역(qa_pipeline) 보호를 위해 질의 1건을
   직렬화한다(PoC: 저트래픽 가정). 다중 동시 사용자가 필요하면 사용량 집계를
   요청 로컬로 옮기는 리팩터가 필요.
-```
